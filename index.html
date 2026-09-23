@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#b8322f" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="政治线">
+<meta name="description" content="考研政治五大板块：史纲时间线、毛中特理论脉络、马原知识树、思修法治主题、形势与政策年度清单，事件—会议—文献三层锚点互链">
+<title>政治线 · 考研政治五大板块</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app">
+  <div class="scrim" id="scrim" hidden></div>
+
+  <aside class="sidebar" id="sidebar" aria-label="侧边栏">
+    <div class="brand">
+      <img class="logo" src="icon.svg" alt="" width="34" height="34">
+      <div class="brand-text">
+        <strong>政治线</strong>
+        <span>考研政治 · 五大板块</span>
+      </div>
+    </div>
+
+    <button class="side-action" id="timelineBtn" type="button">
+      <span>双主线时间轴</span><i>事件 ⇄ 党的政策</i>
+    </button>
+    <button class="side-action" id="quizBtn" type="button">
+      <span>随机自测练习</span><i id="quizTotal"></i>
+    </button>
+    <button class="side-action" id="caseBtn" type="button">
+      <span>案例反查原理</span><i>马原专用</i>
+    </button>
+    <button class="side-action" id="essayBtn" type="button">
+      <span>材料分析题</span><i>2010—2024 · 34—38 题</i>
+    </button>
+
+    <div class="sidebar-block">
+      <div class="sidebar-label">板块</div>
+      <nav class="subject-nav" id="subjectNav" aria-label="板块"></nav>
+    </div>
+
+    <div class="sidebar-block" id="filterBlock">
+      <div class="sidebar-label">锚点类型</div>
+      <div class="filter-row" id="kindFilter"></div>
+    </div>
+
+    <div class="sidebar-block" id="moduleBlock" hidden>
+      <div class="sidebar-label" id="moduleLabel">单元导航</div>
+      <div class="module-list" id="moduleList"></div>
+    </div>
+
+    <div class="sidebar-block">
+      <div class="sidebar-label">今日计划</div>
+      <div id="planBody"></div>
+    </div>
+
+    <div class="sidebar-foot">
+      <div class="sidebar-label">依据《2027 年考研政治考试大纲》梳理</div>
+      <button class="ghost-btn" id="themeBtn" type="button">外观：跟随系统</button>
+      <button class="ghost-btn" id="imgBtn" type="button">图片：显示</button>
+      <button class="ghost-btn" id="resetBtn" type="button">清空学习进度</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn" id="menuBtn" type="button" aria-label="打开菜单">
+        <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M1 2.75A.75.75 0 0 1 1.75 2h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 2.75Zm0 5A.75.75 0 0 1 1.75 7h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 7.75Zm0 5a.75.75 0 0 1 .75-.75h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 12.75Z"/></svg>
+      </button>
+      <div class="topbar-title">
+        <strong id="topTitle">政治线</strong>
+        <span id="topSub">选择板块开始学习</span>
+      </div>
+      <button class="icon-btn" id="searchBtn" type="button" aria-label="搜索知识点">
+        <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"/></svg>
+      </button>
+    </header>
+
+    <div class="progress-strip" id="progressStrip" hidden>
+      <div class="pstrip-head">
+        <div class="bar"><i id="progressBar" style="width:0%"></i></div>
+        <span id="progressText">0 / 0</span>
+      </div>
+      <div class="pstrip-track" id="pstripTrack" role="tablist" aria-label="考点快速跳转" title="点击任一刻度可跳转到对应考点"></div>
+    </div>
+
+    <section class="view" id="viewHome">
+      <div class="wrap boot">
+        <div class="hero">
+          <h1>把考点连成<em>一条线</em></h1>
+          <p>考研政治 · 马原 / 毛中特 / 史纲 / 思修法治 / 形策</p>
+          <div class="boot-hint"><i class="boot-spin"></i><span>正在加载考点数据…</span></div>
+        </div>
+      </div>
+    </section>
+    <section class="view" id="viewStudy" hidden></section>
+    <section class="view" id="viewQuiz" hidden></section>
+    <section class="view" id="viewLine" hidden></section>
+    <section class="view" id="viewCase" hidden></section>
+    <section class="view" id="viewEssay" hidden></section>
+    <div class="actionbar" id="actionbar" hidden></div>
+  </main>
+</div>
+
+<div class="overlay" id="searchOverlay" hidden>
+  <div class="overlay-head">
+    <div class="search-box">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"/></svg>
+      <input id="searchInput" type="search" placeholder="输入年份 / 事件 / 会议 / 文献 / 原理" autocomplete="off" enterkeyhint="search">
+    </div>
+    <button class="text-btn" id="searchClose" type="button">取消</button>
+  </div>
+  <div class="search-filters" id="searchFilters"></div>
+  <div class="search-results" id="searchResults"></div>
+</div>
+
+<div class="overlay" id="imgOverlay" hidden>
+  <div class="img-toolbar">
+    <span class="img-zoom-label" id="imgZoomLabel">适应</span>
+    <button class="img-tool-btn" id="imgZoomOut" type="button" aria-label="缩小">−</button>
+    <button class="img-tool-btn" id="imgZoomIn" type="button" aria-label="放大">＋</button>
+    <button class="img-tool-btn" id="imgZoomFit" type="button">适应宽度</button>
+    <button class="img-tool-btn" id="imgZoomOne" type="button">1:1</button>
+    <span class="img-tool-spacer"></span>
+    <button class="img-tool-btn img-close" id="imgClose" type="button">关闭</button>
+  </div>
+  <div class="img-stage" id="imgStage">
+    <img id="imgBig" alt="" draggable="false">
+  </div>
+  <div class="img-cap" id="imgCap"></div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js').catch(function () {});
+  });
+}
+</script>
+</body>
+</html>

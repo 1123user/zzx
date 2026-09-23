@@ -1,0 +1,16 @@
+{
+  "name": "政治线 · 考研政治五大板块",
+  "short_name": "政治线",
+  "description": "考研政治五大板块：史纲时间线、毛中特理论脉络、马原知识树、思修法治主题、形势与政策年度清单，事件—会议—文献三层锚点互链",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0d1117",
+  "theme_color": "#b8322f",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
