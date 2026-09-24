@@ -312,13 +312,14 @@
   function syncImgBtn() { $("imgBtn").textContent = "图片：" + (state.imgMode === "on" ? "显示" : "隐藏"); }
 
   var toastTimer = null;
-  function toast(msg) {
+  function toast(msg, ms) {
     var t = $("toast"); t.textContent = msg; t.hidden = false;
     requestAnimationFrame(function () { t.classList.add("show"); });
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () {
-      t.classList.remove("show"); setTimeout(function () { t.hidden = true; }, 260);
-    }, 1700);
+      t.classList.remove("show"); t.onclick = null;
+      setTimeout(function () { t.hidden = true; }, 260);
+    }, ms || 1700);
   }
   function openSidebar() { dom.sidebar.classList.add("open"); dom.scrim.hidden = false; requestAnimationFrame(function () { dom.scrim.classList.add("show"); }); }
   function closeSidebar() {
@@ -370,8 +371,15 @@
       '<div class="bar" style="height:5px;border-radius:5px;background:var(--line);overflow:hidden;margin:8px 0 6px">' +
       '<i style="display:block;height:100%;width:' + (tot ? Math.round(dn / tot * 100) : 0) + '%;background:var(--accent);border-radius:5px"></i></div>' +
       '<p style="font-size:12px;color:var(--fg-3);margin:0">' + (dn ? "继续保持，逐条过一遍即通关。" : "点开任一板块，从第一条开始。") + "</p></div>";
-    $("quizTotal").textContent = quizAll().length + " 题";
+    syncQuizTotal();
     syncWrongBadge();
+  }
+  /* 题库改为按需加载（体积较大，不阻塞首屏），未加载时给出中性文案 */
+  function syncQuizTotal() {
+    var el = $("quizTotal");
+    if (!el) return;
+    var bank = quizBank || window.ZZX_QUIZ;
+    el.textContent = bank ? quizAll().length + " 题" : "点开即用";
   }
 
   /* ---------------- 首页 ---------------- */
@@ -1564,6 +1572,17 @@
     /* 不关闭侧栏：下载进度直接显示在这个按钮上 */
     if ($("packBtn")) $("packBtn").onclick = function () { startPack(); };
     syncPackBtn();
+
+    /* 新版 Service Worker 接管后给出可点击的提示（不自动刷新，避免 iOS 上刷新成环） */
+    if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
+      navigator.serviceWorker.addEventListener("message", function (e) {
+        var d = e.data || {};
+        if (d.type !== "zzx-updated") return;
+        toast("已就绪新版本 · 点这里刷新", 8000);
+        var t = $("toast");
+        t.onclick = function () { location.reload(); };
+      });
+    }
     $("resetBtn").onclick = function () {
       if (!confirm("确定清空全部学习进度？")) return;
       progress = {}; saveProgress(); renderSidebar(); renderHome(); toast("进度已清空");
@@ -1862,7 +1881,8 @@
     var settled = false;
     /* 看门狗：超过 18 秒仍未就绪，给出可点击的重试入口 */
     var guard = setTimeout(function () { if (!settled) bootError("加载超时"); }, 18000);
-    Promise.all([loadQuiz(), loadAll()]).then(function () {
+    /* 首屏只等考点数据；题库（约 250KB）不再阻塞启动，改为空闲时后台预热 */
+    loadAll().then(function () {
       settled = true; clearTimeout(guard);
       indexAll(); renderSidebar();
       var okBoards = BOARDS.filter(function (b) { return getBoard(b.id); }).length;
@@ -1870,6 +1890,9 @@
       renderHome();
       var missing = BOARDS.length - okBoards;
       if (missing) toast(missing + " 个板块的数据未加载成功，可重试或稍后再打开");  // 部分失败：明确告知
+      idleRun(function () {
+        loadQuiz().then(function () { syncQuizTotal(); }).catch(function () {});
+      });
     }).catch(function (err) {
       settled = true; clearTimeout(guard);
       try { indexAll(); renderSidebar(); } catch (e2) {}
