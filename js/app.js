@@ -973,12 +973,12 @@
   }
   function renderQuiz() {
     var q = quiz.list[quiz.i];
-    var h = '<div class="wrap">';
+    var h = '<div class="wrap quiz-page">';
     if (!q) { renderHome(); return; }
     var multi = isMulti(q);
+    h += '<div class="quiz-card">';
     h += '<div class="crumb"><span>' + esc(quiz.label || "自测练习") + "</span><span>·</span><span>第 " + (quiz.i + 1) + " / " + quiz.list.length + " 题</span>" +
       (q.y ? "<span>·</span><span>" + q.y + " 年第 " + q.n + " 题</span>" : "") + "</div>";
-    h += '<div class="quiz-card">';
     h += '<p class="quiz-q">' + esc(q.q) + (multi ? '<span class="q-tag">多选题</span>' : '<span class="q-tag">单选题</span>') + "</p>";
     h += '<div class="quiz-opts">' + q.o.map(function (o, i) {
       return '<button type="button" class="opt' + (quiz.picked.indexOf(i) >= 0 ? " sel" : "") + '" data-opt="' + i + '"><b>' + String.fromCharCode(65 + i) + "</b><span>" + esc(o) + "</span></button>";

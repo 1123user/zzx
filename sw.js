@@ -1,6 +1,6 @@
 /* 政治线 PWA Service Worker —— 保证添加到桌面后快速打开、不白屏 */
-const CACHE = 'zzx-shell-v8';
-const RUNTIME = 'zzx-runtime-v8'; // 配图等按需资源独立缓存，升级外壳不再连带清空，避免重复下载
+const CACHE = 'zzx-shell-v9';
+const RUNTIME = 'zzx-runtime-v9'; // 配图等按需资源独立缓存，升级外壳不再连带清空，避免重复下载
 
 const SHELL = [
   './',
