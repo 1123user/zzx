@@ -1,5 +1,6 @@
 /* 政治线 PWA Service Worker —— 保证添加到桌面后快速打开、不白屏 */
-const CACHE = 'zzx-shell-v6';
+const CACHE = 'zzx-shell-v7';
+const RUNTIME = 'zzx-runtime-v7'; // 配图等按需资源独立缓存，升级外壳不再连带清空，避免重复下载
 
 const SHELL = [
   './',
@@ -30,7 +31,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== RUNTIME).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -79,7 +80,7 @@ self.addEventListener('fetch', (e) => {
         .then((res) => {
           if (res && res.status === 200 && res.type !== 'opaque') {
             const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
+            caches.open(RUNTIME).then((c) => c.put(req, copy));
           }
           return res;
         })
