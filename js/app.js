@@ -374,12 +374,13 @@
     syncQuizTotal();
     syncWrongBadge();
   }
-  /* 题库改为按需加载（体积较大，不阻塞首屏），未加载时给出中性文案 */
+  /* 题库改为按需加载（体积较大，不阻塞首屏），未加载时给出中性文案；
+     加载完成后原地补数字，不重排页面 */
   function syncQuizTotal() {
     var el = $("quizTotal");
-    if (!el) return;
-    var bank = quizBank || window.ZZX_QUIZ;
-    el.textContent = bank ? quizAll().length + " 题" : "点开即用";
+    if (el) el.textContent = quizLoaded() ? quizAll().length + " 题" : "点开即用";
+    var hn = $("heroQuizN");
+    if (hn && quizLoaded()) hn.textContent = quizAll().length;
   }
 
   /* ---------------- 首页 ---------------- */
@@ -394,7 +395,7 @@
       '<p>依据《2027 年考研政治考试大纲》梳理 · 马原 / 毛中特 / 史纲 / 思修法治 / 形策</p>' +
       '<div class="hero-stats">' +
       "<div><b>" + tot + "</b><span>考点</span></div>" +
-      "<div><b>" + quizAll().length + "</b><span>自测题</span></div>" +
+      '<div><b id="heroQuizN">' + (quizLoaded() ? quizAll().length : "—") + "</b><span>自测题</span></div>" +
       "</div></div>";
 
     h += '<div class="sec-title">五大板块</div><div class="cards">';
@@ -903,6 +904,8 @@
   var quizBank = null, quizLoading = null;
 
   function quizAll() { return quizBank || window.ZZX_QUIZ || []; }
+  /* 题库按需加载：加载完成前首页/侧栏的数字显示占位，完成后原地补上，不重排页面 */
+  function quizLoaded() { return !!quizBank; }
 
   function quizBoardOf(q) {
     if (q.b) return q.b;

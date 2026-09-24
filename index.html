@@ -15,7 +15,44 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="css/app.css">
+
+<script>/* 提前应用主题，避免深色模式下的白屏闪动 */
+(function(){try{var t=localStorage.getItem("zzx.theme")||"auto";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();
+</script>
+<style>/* 首屏关键样式：内联，冷启动时 HTML 一到就能立刻画出界面骨架，无需等待样式表往返 */
+:root{--bg:#f6f4ef;--bg-elevated:#ffffff;--bg-sunken:#eeeae2;--bg-hover:#f0ece4;--line:#e2ddd2;--line-soft:#ece7dd;
+  --fg:#1d1b18;--fg-2:#57534b;--fg-3:#8d8880;--accent:#b8322f;--r:14px;--r-sm:9px;
+  --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif}
+html[data-theme="dark"]{--bg:#0f1113;--bg-elevated:#181b1e;--bg-sunken:#0b0d0f;--bg-hover:#20242a;--line:#2b3036;--line-soft:#232729;--fg:#e9e6e1;--fg-2:#a8a49d;--fg-3:#75716b;--accent:#e0685f}
+@media (prefers-color-scheme:dark){html[data-theme="auto"]{--bg:#0f1113;--bg-elevated:#181b1e;--bg-sunken:#0b0d0f;--bg-hover:#20242a;--line:#2b3036;--line-soft:#232729;--fg:#e9e6e1;--fg-2:#a8a49d;--fg-3:#75716b;--accent:#e0685f}}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.72 var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
+button{cursor:pointer;border:0;background:none;font:inherit;color:inherit}
+.app{display:flex;height:100%;height:100dvh}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.topbar{display:flex;align-items:center;gap:10px;padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top));border-bottom:1px solid var(--line);background:var(--bg-elevated)}
+.topbar-title{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.35}
+.topbar-title strong{font-size:15.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar-title span{font-size:11.5px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.icon-btn{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--fg-2);flex:0 0 auto}
+.view{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+.wrap{max-width:820px;margin:0 auto;padding:18px 16px 44px}
+.hero{padding:8px 0 22px;border-bottom:1px solid var(--line-soft)}
+.hero h1{font-size:25px;margin:0 0 8px;line-height:1.34}
+.hero h1 em{font-style:normal;color:var(--accent)}
+.hero p{margin:0;color:var(--fg-2);font-size:13.5px}
+.sidebar{width:274px;flex:0 0 274px;background:var(--bg-elevated);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:16px 14px 10px;overflow-y:auto;z-index:40}
+.sk-card{height:76px;border-radius:var(--r);border:1px solid var(--line);margin:0 0 10px;background:linear-gradient(100deg,var(--bg-sunken) 30%,var(--bg-hover) 50%,var(--bg-sunken) 70%);background-size:220% 100%;animation:skpulse 1.2s linear infinite}
+@keyframes skpulse{from{background-position:130% 0}to{background-position:-30% 0}}
+@media (max-width:900px){
+  .sidebar{position:fixed;inset:0 auto 0 0;width:100%;flex-basis:100%;transform:translateX(-101%);box-shadow:none}
+  .wrap{padding:14px 14px 40px}
+  .hero h1{font-size:21px}
+}
+</style>
+<link rel="stylesheet" href="css/app.css" media="print" onload="this.media='all';this.onload=null">
+<noscript><link rel="stylesheet" href="css/app.css"></noscript>
 </head>
 <body>
 <div class="app">
@@ -106,6 +143,7 @@
           <p>考研政治 · 马原 / 毛中特 / 史纲 / 思修法治 / 形策</p>
           <div class="boot-hint"><i class="boot-spin"></i><span>正在加载考点数据…</span></div>
         </div>
+        <div aria-hidden="true"><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div></div>
       </div>
     </section>
     <section class="view" id="viewStudy" hidden></section>
