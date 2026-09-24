@@ -2,10 +2,10 @@
    设计目标：
    1) 在线时永远拿到最新代码，绝不让旧版本复活；
    2) 预缓存逐个进行，单个文件失败不影响 Service Worker 安装（避免卡在安装态）；
-   3) 回源一律使用「干净的同源 Request」，规避 iOS Safari 对原始 no-cors 请求的兼容问题；
+   3) 每条分支都有多重兜底：任何一步失败都退回「最朴素的原生请求」，绝不把资源请求打死；
    4) 离线可用；配图一次下载永久复用。
 */
-const CACHE = 'zzx-shell-v12';
+const CACHE = 'zzx-shell-v13';
 /* RUNTIME 名字冻结：里面存着约 36MB 配图，改名会导致全部重下 */
 const RUNTIME = 'zzx-runtime-v10';
 
@@ -33,9 +33,8 @@ function isHeavyAsset(url) {
 }
 
 /* 干净的回源请求：不直接复用页面的原始 Request（脚本类为 no-cors，
-   iOS Safari 在 Service Worker 内对其处理存在兼容问题），改为显式同源 GET。
-   cache:'no-cache' 表示必须向服务器校验（命中 ETag 返回 304，流量极小），
-   从而保证在线时拿到的永远是最新内容。 */
+   个别 WebKit 版本对其在 Service Worker 内处理存在兼容问题），改为显式同源 GET。
+   cache:'no-cache' = 必须向服务器校验，命中 ETag 返回 304，流量极小但内容永远最新 */
 function netRequest(url, revalidate) {
   return new Request(url, {
     method: 'GET',
@@ -50,7 +49,12 @@ function safePut(cacheName, key, res) {
   try {
     const copy = res.clone();
     caches.open(cacheName).then((c) => c.put(key, copy)).catch(function () {});
-  } catch (e) { /* 忽略写入失败，不影响页面 */ }
+  } catch (e) { /* 写入失败不影响页面 */ }
+}
+
+/* 强校验请求 → 失败退回原始请求 */
+function fetchFresh(url, req) {
+  return fetch(netRequest(url.href, true)).catch(function () { return fetch(req); });
 }
 
 self.addEventListener('install', (e) => {
@@ -58,8 +62,9 @@ self.addEventListener('install', (e) => {
     caches.open(CACHE)
       .then((c) => Promise.all(SHELL.map((u) =>
         fetch(netRequest(new URL(u, self.location.href).href, true))
+          .catch(() => fetch(u))                 /* 兜底：退回最朴素请求 */
           .then((res) => { if (res && res.status === 200) return c.put(u, res); })
-          .catch(() => {})            /* 单文件失败不再让整个安装失败 */
+          .catch(() => {})                       /* 单文件失败不再让整个安装失败 */
       )))
       .then(() => self.skipWaiting())
       .catch(() => self.skipWaiting())
@@ -99,15 +104,6 @@ function offlineResponse() {
   );
 }
 
-/* 导航请求：网络优先（强制校验）→ 缓存 → 离线页 */
-function handleNavigate(url) {
-  return fetch(netRequest(url.href, true))
-    .then((res) => { safePut(CACHE, './index.html', res); return res; })
-    .catch(() => caches.match('./index.html')
-      .then((r) => r || caches.match(url.href))
-      .then((r) => r || offlineResponse()));
-}
-
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -116,28 +112,35 @@ self.addEventListener('fetch', (e) => {
   try { url = new URL(req.url); } catch (err) { return; }
   if (url.origin !== self.location.origin) return;
 
-  // 页面导航
+  // 页面导航：强校验网络优先 → 原始请求 → 缓存 → 离线页
   if (req.mode === 'navigate') {
-    e.respondWith(handleNavigate(url));
-    return;
-  }
-
-  // 配图与桌面图标：缓存优先，未命中再联网并写入 RUNTIME
-  if (isHeavyAsset(url)) {
     e.respondWith(
-      caches.match(url.href).then((cached) => {
-        if (cached) return cached;
-        return fetch(netRequest(url.href, false))
-          .then((res) => { safePut(RUNTIME, url.href, res); return res; });
-      })
+      fetchFresh(url, req)
+        .then((res) => { safePut(CACHE, './index.html', res); return res; })
+        .catch(() => caches.match('./index.html')
+          .then((r) => r || caches.match(req))
+          .then((r) => r || offlineResponse()))
     );
     return;
   }
 
-  // 代码与数据：网络优先（强制校验）并写入缓存，离线回退缓存
+  // 配图与桌面图标：缓存优先（沿用长期验证可用的原始请求方式），未命中再联网并写入 RUNTIME
+  if (isHeavyAsset(url)) {
+    e.respondWith(
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
+        return fetch(req)
+          .then((res) => { safePut(RUNTIME, url.href, res); return res; })
+          .catch(() => fetch(url.href));          /* 兜底：退回最朴素请求 */
+      }).catch(() => fetch(url.href))
+    );
+    return;
+  }
+
+  // 代码与数据：强校验网络优先并写入缓存，离线回退缓存，最后再退原始请求
   e.respondWith(
-    fetch(netRequest(url.href, true))
+    fetchFresh(url, req)
       .then((res) => { safePut(CACHE, url.href, res); return res; })
-      .catch(() => caches.match(url.href).then((r) => r || caches.match(req)))
+      .catch(() => caches.match(req).then((r) => r || caches.match(url.href)))
   );
 });

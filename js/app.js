@@ -449,7 +449,6 @@
     try { im.fetchPriority = "low"; } catch (e) {}
     im.src = src;
     preloaded[src] = im; // 持有引用，避免被回收导致请求中断
-    if (typeof im.decode === "function") im.decode().catch(function () {});
   }
   function preloadItem(it) { imgSrcsOf(it).forEach(preload); }
   /* 下一条（最高优先级）→ 本条下一页 → 空闲时再预取往后两条与上一条 */
@@ -467,48 +466,24 @@
       idleRun(function () { preloadItem(list[state.index + 3]); });
     });
   }
-  /* 尚未就绪的图先给占位微光；等原图完全下载并解码后再挂上 src。
-     配图均为渐进式 JPEG，加载中浏览器会先渲染整张发灰的模糊帧，
-     先解码后上屏即可彻底避免「雾蒙蒙」的中间态 */
+  /* 配图加载状态：图片本身已全部转为 baseline JPEG（不存在渐进式模糊帧），
+     因此直接交给浏览器原生加载即可，最稳：不接管 src、不做解码门控、
+     不设超时兜底，任何环境下都不会出现"永远加载不出来" */
   function markShots() {
     var imgs = $("viewStudy").querySelectorAll("img.shot");
     for (var i = 0; i < imgs.length; i++) {
       (function (im) {
         if (im.dataset.shotReady === "1") return;
         im.dataset.shotReady = "1";
-        var src = im.getAttribute("data-src") || im.getAttribute("data-full") || "";
-        if (!src) return;
-        im.removeAttribute("src");
-        im.classList.add("is-pending");
-
-        var settled = false;
-        function show() {
-          if (settled) return; settled = true;
-          clearTimeout(guard);
-          im.src = src; im.classList.remove("is-pending");
+        if (im.complete) {                       // 已结束（成功或失败）
+          if (!im.naturalWidth) im.classList.add("img-broken");
+          return;
         }
-        function fail() {
-          if (settled) return; settled = true;
-          clearTimeout(guard);
+        im.classList.add("is-pending");          // 仅作占位微光，纯装饰
+        im.addEventListener("load", function () { im.classList.remove("is-pending"); });
+        im.addEventListener("error", function () {
           im.classList.remove("is-pending"); im.classList.add("img-broken");
-        }
-        /* 兜底：解码事件异常时也保证图片最终显示，最坏退化为直出 */
-        var guard = setTimeout(show, 8000);
-
-        /* 优先复用预加载中的同一请求，避免重复下载 */
-        var loader = preloaded[src];
-        if (!loader) {
-          loader = new Image();
-          loader.decoding = "sync";
-          loader.src = src;
-        }
-        function ready() {
-          if (typeof loader.decode === "function") loader.decode().then(show, show);
-          else show();
-        }
-        if (loader.complete && loader.naturalWidth) { ready(); return; }
-        loader.addEventListener("load", ready);
-        loader.addEventListener("error", fail);
+        });
       })(imgs[i]);
     }
   }
@@ -558,8 +533,8 @@
   function renderFig(b) {
     if (state.imgMode !== "on") return "";
     if (!b.v) return "";
-    return '<figure class="b-fig"><img class="shot" data-src="' + esc(b.v) + '" alt="' + esc(b.cap || "") +
-      '" decoding="async" data-full="' + esc(b.v) + '" data-cap="' + esc(b.cap || "") + '">' +
+    return '<figure class="b-fig"><img class="shot" src="' + esc(b.v) + '" alt="' + esc(b.cap || "") +
+      '" loading="lazy" decoding="async" data-full="' + esc(b.v) + '" data-cap="' + esc(b.cap || "") + '">' +
       '<figcaption>' + esc(b.cap || "") + "</figcaption></figure>";
   }
   function renderBlock(b) {
@@ -643,8 +618,8 @@
     }
 
     if (it.img && state.imgMode === "on") {
-      h += '<figure class="b-fig"><img class="shot" data-src="' + esc(it.img) + '" alt="' + esc(it.imgCap || "") +
-        '" decoding="async" data-full="' + esc(it.img) + '" data-cap="' + esc(it.imgCap || "") + '">' +
+      h += '<figure class="b-fig"><img class="shot" src="' + esc(it.img) + '" alt="' + esc(it.imgCap || "") +
+        '" loading="lazy" decoding="async" data-full="' + esc(it.img) + '" data-cap="' + esc(it.imgCap || "") + '">' +
         '<figcaption>' + esc(it.imgCap || "") + "</figcaption></figure>";
     }
 
@@ -1713,6 +1688,17 @@
       }
       var img = up(".shot");
       if (img) {
+        /* 尚未成功显示的配图（加载失败或还在等懒加载）：点一下就地重试，而不是打开空的大图查看器 */
+        if (!img.naturalWidth) {
+          var full = img.getAttribute("data-full") || img.getAttribute("src") || "";
+          if (full) {
+            img.classList.remove("img-broken");
+            img.classList.add("is-pending");
+            img.src = full + (full.indexOf("?") < 0 ? "?" : "&") + "zzxr=" + Date.now();
+            toast("正在重新加载配图…");
+          }
+          return;
+        }
         openViewer(img.getAttribute("data-full"), img.getAttribute("data-cap") || "");
         return;
       }
