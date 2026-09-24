@@ -342,15 +342,48 @@
       idleRun(function () { preloadItem(list[state.index + 3]); });
     });
   }
-  /* 尚未就绪的图先给占位微光，加载完成后移除 */
+  /* 尚未就绪的图先给占位微光；等原图完全下载并解码后再挂上 src。
+     配图均为渐进式 JPEG，加载中浏览器会先渲染整张发灰的模糊帧，
+     先解码后上屏即可彻底避免「雾蒙蒙」的中间态 */
   function markShots() {
     var imgs = $("viewStudy").querySelectorAll("img.shot");
     for (var i = 0; i < imgs.length; i++) {
       (function (im) {
-        if (im.complete && im.naturalWidth) return;
+        if (im.dataset.shotReady === "1") return;
+        im.dataset.shotReady = "1";
+        var src = im.getAttribute("data-src") || im.getAttribute("data-full") || "";
+        if (!src) return;
+        im.removeAttribute("src");
         im.classList.add("is-pending");
-        im.addEventListener("load", function () { im.classList.remove("is-pending"); });
-        im.addEventListener("error", function () { im.classList.remove("is-pending"); });
+
+        var settled = false;
+        function show() {
+          if (settled) return; settled = true;
+          clearTimeout(guard);
+          im.src = src; im.classList.remove("is-pending");
+        }
+        function fail() {
+          if (settled) return; settled = true;
+          clearTimeout(guard);
+          im.classList.remove("is-pending"); im.classList.add("img-broken");
+        }
+        /* 兜底：解码事件异常时也保证图片最终显示，最坏退化为直出 */
+        var guard = setTimeout(show, 8000);
+
+        /* 优先复用预加载中的同一请求，避免重复下载 */
+        var loader = preloaded[src];
+        if (!loader) {
+          loader = new Image();
+          loader.decoding = "sync";
+          loader.src = src;
+        }
+        function ready() {
+          if (typeof loader.decode === "function") loader.decode().then(show, show);
+          else show();
+        }
+        if (loader.complete && loader.naturalWidth) { ready(); return; }
+        loader.addEventListener("load", ready);
+        loader.addEventListener("error", fail);
       })(imgs[i]);
     }
   }
@@ -400,8 +433,8 @@
   function renderFig(b) {
     if (state.imgMode !== "on") return "";
     if (!b.v) return "";
-    return '<figure class="b-fig"><img class="shot" src="' + esc(b.v) + '" alt="' + esc(b.cap || "") +
-      '" loading="lazy" decoding="async" data-full="' + esc(b.v) + '" data-cap="' + esc(b.cap || "") + '">' +
+    return '<figure class="b-fig"><img class="shot" data-src="' + esc(b.v) + '" alt="' + esc(b.cap || "") +
+      '" decoding="async" data-full="' + esc(b.v) + '" data-cap="' + esc(b.cap || "") + '">' +
       '<figcaption>' + esc(b.cap || "") + "</figcaption></figure>";
   }
   function renderBlock(b) {
@@ -485,8 +518,8 @@
     }
 
     if (it.img && state.imgMode === "on") {
-      h += '<figure class="b-fig"><img class="shot" src="' + esc(it.img) + '" alt="' + esc(it.imgCap || "") +
-        '" loading="lazy" decoding="async" data-full="' + esc(it.img) + '" data-cap="' + esc(it.imgCap || "") + '">' +
+      h += '<figure class="b-fig"><img class="shot" data-src="' + esc(it.img) + '" alt="' + esc(it.imgCap || "") +
+        '" decoding="async" data-full="' + esc(it.img) + '" data-cap="' + esc(it.imgCap || "") + '">' +
         '<figcaption>' + esc(it.imgCap || "") + "</figcaption></figure>";
     }
 
