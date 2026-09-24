@@ -149,8 +149,23 @@
 <script src="js/app.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
+  /* 新 Service Worker 接管后自动刷新一次，保证主屏幕图标打开的永远是最新版 */
+  var zzxSwRefreshed = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (zzxSwRefreshed) return;
+    zzxSwRefreshed = true;
+    location.reload();
+  });
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./sw.js').catch(function () {});
+    navigator.serviceWorker.register('./sw.js').then(function (reg) {
+      /* 每次打开 / 切回前台 / 网络恢复时，强制检查是否有新版本 */
+      function checkUpdate() { reg.update().catch(function () {}); }
+      checkUpdate();
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) checkUpdate();
+      });
+      window.addEventListener('online', checkUpdate);
+    }).catch(function () {});
   });
 }
 </script>
