@@ -1545,6 +1545,7 @@
     dom.sidebar = $("sidebar"); dom.scrim = $("scrim");
     $("menuBtn").onclick = openSidebar;
     $("scrim").onclick = closeSidebar;
+    $("sideClose").onclick = closeSidebar;
     $("themeBtn").onclick = cycleTheme;
     $("imgBtn").onclick = function () {
       state.imgMode = state.imgMode === "on" ? "off" : "on";
@@ -1584,7 +1585,7 @@
         return;
       }
       var k = up("[data-kind]");
-      if (k) { state.kind = k.getAttribute("data-kind"); state.index = 0; state.page = 0; renderSidebar(); renderStudy(); return; }
+      if (k) { state.kind = k.getAttribute("data-kind"); state.index = 0; state.page = 0; renderSidebar(); renderStudy(); closeSidebar(); return; }
       var u = up("[data-unit]");
       if (u) {
         var uv = u.getAttribute("data-unit");
