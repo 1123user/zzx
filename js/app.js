@@ -1557,6 +1557,10 @@
       if (!$("viewStudy").hidden) renderStudy(); else renderHome();
       toast("配图已" + (state.imgMode === "on" ? "显示" : "隐藏"));
     };
+    if ($("cacheBtn")) $("cacheBtn").onclick = function () {
+      if (!confirm("将重新下载页面与配图（学习进度、错题库不受影响）。继续？")) return;
+      hardReset();
+    };
     $("resetBtn").onclick = function () {
       if (!confirm("确定清空全部学习进度？")) return;
       progress = {}; saveProgress(); renderSidebar(); renderHome(); toast("进度已清空");
