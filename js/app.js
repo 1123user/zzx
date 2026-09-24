@@ -480,10 +480,21 @@
           return;
         }
         im.classList.add("is-pending");          // 仅作占位微光，纯装饰
-        im.addEventListener("load", function () { im.classList.remove("is-pending"); });
-        im.addEventListener("error", function () {
+        function ok() {
+          im.classList.remove("is-pending");
+          var f = im.parentNode; if (f && f.classList) f.classList.remove("is-broken");
+        }
+        function bad() {
           im.classList.remove("is-pending"); im.classList.add("img-broken");
-        });
+          var f = im.parentNode; if (f && f.classList) f.classList.add("is-broken");
+        }
+        im.addEventListener("load", ok);
+        im.addEventListener("error", bad);
+        /* 纯装饰性兜底：只清理样式类，绝不触碰 src，避免任何"卡住"的可能 */
+        setTimeout(function () {
+          if (!im.complete) return;
+          if (im.naturalWidth) ok(); else bad();
+        }, 3000);
       })(imgs[i]);
     }
   }
@@ -1693,6 +1704,7 @@
           var full = img.getAttribute("data-full") || img.getAttribute("src") || "";
           if (full) {
             img.classList.remove("img-broken");
+            if (img.parentNode && img.parentNode.classList) img.parentNode.classList.remove("is-broken");
             img.classList.add("is-pending");
             img.src = full + (full.indexOf("?") < 0 ? "?" : "&") + "zzxr=" + Date.now();
             toast("正在重新加载配图…");
