@@ -1,5 +1,5 @@
 /* 政治线 PWA Service Worker —— 保证添加到桌面后快速打开、不白屏 */
-const CACHE = 'zzx-shell-v5';
+const CACHE = 'zzx-shell-v6';
 
 const SHELL = [
   './',
