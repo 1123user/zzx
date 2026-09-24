@@ -5,9 +5,10 @@
    3) 每条分支都有多重兜底：任何一步失败都退回「最朴素的原生请求」，绝不把资源请求打死；
    4) 离线可用；配图一次下载永久复用。
 */
-const CACHE = 'zzx-shell-v13';
-/* RUNTIME 名字冻结：里面存着约 36MB 配图，改名会导致全部重下 */
-const RUNTIME = 'zzx-runtime-v10';
+const CACHE = 'zzx-shell-v14';
+/* 配图已全量转为 WebP（体积约减半），缓存名随之升级：
+   旧 jpg 缓存会被自动清理，不会白白占着手机空间 */
+const RUNTIME = 'zzx-runtime-v14';
 
 const SHELL = [
   './',

@@ -1561,6 +1561,9 @@
       if (!confirm("将重新下载页面与配图（学习进度、错题库不受影响）。继续？")) return;
       hardReset();
     };
+    /* 不关闭侧栏：下载进度直接显示在这个按钮上 */
+    if ($("packBtn")) $("packBtn").onclick = function () { startPack(); };
+    syncPackBtn();
     $("resetBtn").onclick = function () {
       if (!confirm("确定清空全部学习进度？")) return;
       progress = {}; saveProgress(); renderSidebar(); renderHome(); toast("进度已清空");
@@ -1783,6 +1786,64 @@
     } catch (e) { done(); }
   }
   window.zzxHardReset = hardReset;
+
+  /* ---------------- 配图离线包：一键把全部配图存到本机 ---------------- */
+  var PACK_KEY = "zzx.pack.v1";
+  var packRunning = false;
+  function packInfo() {
+    try { return JSON.parse(localStorage.getItem(PACK_KEY) || "null"); } catch (e) { return null; }
+  }
+  function allImgUrls() {
+    var urls = [], seen = {};
+    allItems().forEach(function (it) {
+      imgSrcsOf(it).forEach(function (u) { if (u && !seen[u]) { seen[u] = 1; urls.push(u); } });
+    });
+    return urls;
+  }
+  function syncPackBtn() {
+    var b = $("packBtn");
+    if (!b || packRunning) return;
+    b.textContent = packInfo() ? "配图已下载 ✓（点此补齐）" : "下载全部配图（离线秒开）";
+  }
+  function downloadImages(urls) {
+    packRunning = true;
+    var btn = $("packBtn"), done = 0, fail = 0, i = 0, CONC = 4;
+    function label() { if (btn) btn.textContent = "下载中 " + done + " / " + urls.length + "…"; }
+    label();
+    function next() {
+      if (i >= urls.length) return Promise.resolve();
+      var batch = urls.slice(i, i + CONC); i += CONC;
+      return Promise.all(batch.map(function (u) {
+        /* 已缓存的图由 Service Worker 直接返回，不会重复走网络 */
+        return fetch(u, { credentials: "same-origin" })
+          .then(function (r) { if (r.ok) { done++; return r.blob(); } fail++; })
+          .catch(function () { fail++; });
+      })).then(function () { label(); return next(); });
+    }
+    return next().then(function () {
+      packRunning = false;
+      try { localStorage.setItem(PACK_KEY, JSON.stringify({ at: Date.now(), n: urls.length })); } catch (e) {}
+      syncPackBtn();
+      toast(fail
+        ? "配图离线包：成功 " + done + " 张，失败 " + fail + " 张，可稍后重试"
+        : "配图离线包完成：" + done + " 张已存入本机，之后离线也能秒看");
+    });
+  }
+  function startPack() {
+    if (packRunning) { toast("正在下载配图，请稍候…"); return; }
+    loadAll().then(function () {
+      indexAll();
+      var urls = allImgUrls();
+      if (!urls.length) { toast("没有需要下载的配图"); return; }
+      var mb = Math.max(1, Math.round(urls.length * 55 / 1024));
+      var p = packInfo();
+      var msg = p
+        ? ("已下载过 " + (p.n || 0) + " 张。补齐缺失的 " + urls.length + " 张配图？已缓存的不会重复下载。")
+        : ("将把 " + urls.length + " 张配图（约 " + mb + " MB）存到本机，之后翻看任何考点秒开、离线也能看。\n建议在 Wi-Fi 下进行，继续？");
+      if (!confirm(msg)) return;
+      downloadImages(urls);
+    });
+  }
 
   /* 首屏数据加载失败/超时时的可恢复提示，替代永远转圈的「正在加载考点数据…」 */
   function bootError(reason) {
