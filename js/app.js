@@ -204,11 +204,29 @@
   /* ---------------- 数据 ---------------- */
   function getBoard(id) { return (window.ZZX || {})[id] || null; }
   function loadScript(src) {
-    return new Promise(function (res) {
-      var sc = document.createElement("script");
-      sc.src = src; sc.onload = function () { res(true); };
-      sc.onerror = function () { res(false); };
-      document.head.appendChild(sc);
+    return new Promise(function (resolve) {
+      var done = false, timer = 0;
+      function finish(ok) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(ok);
+      }
+      function inject(url) {
+        var sc = document.createElement("script");
+        sc.src = url;
+        sc.onload = function () { finish(true); };
+        sc.onerror = function () {
+          /* 首次失败：稍后换参数重试一次，规避偶发网络/缓存故障 */
+          if (url.indexOf("zzxretry=1") < 0) {
+            setTimeout(function () { inject(src + (src.indexOf("?") < 0 ? "?" : "&") + "zzxretry=1"); }, 1200);
+          } else { finish(false); }
+        };
+        document.head.appendChild(sc);
+      }
+      /* 超时兜底：请求悬挂时也不让启动流程无限等待 */
+      timer = setTimeout(function () { finish(false); }, 15000);
+      inject(src);
     });
   }
   function loadBoard(id) {
@@ -1742,12 +1760,57 @@
   }
 
   /* ---------------- 启动 ---------------- */
+  /* 极端情况自救：注销 Service Worker、清空全部离线缓存后重载。
+     用于旧版离线缓存损坏导致页面打不开的场景，用户无需删除主屏幕图标 */
+  function hardReset() {
+    function done() { location.reload(); }
+    try {
+      var tasks = [];
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        tasks.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+          return Promise.all(rs.map(function (r) { return r.unregister(); }));
+        }));
+      }
+      if (typeof caches !== "undefined" && caches.keys) {
+        tasks.push(caches.keys().then(function (ks) {
+          return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+        }));
+      }
+      if (!tasks.length) return done();
+      Promise.all(tasks).then(done, done);
+    } catch (e) { done(); }
+  }
+  window.zzxHardReset = hardReset;
+
+  /* 首屏数据加载失败/超时时的可恢复提示，替代永远转圈的「正在加载考点数据…」 */
+  function bootError(reason) {
+    var home = $("viewHome");
+    if (!home || home.hidden) return;
+    var host = home.querySelector(".boot-hint");
+    if (!host) return;
+    host.className = "boot-hint is-error";
+    host.innerHTML = "<span>数据加载失败" + (reason ? "（" + esc(reason) + "）" : "") +
+      "，请检查网络后重试。已缓存的内容在离线时仍可查看。</span>" +
+      '<button type="button" class="boot-retry" onclick="location.reload()">重新加载</button>' +
+      '<button type="button" class="boot-retry ghost" onclick="window.zzxHardReset&&window.zzxHardReset()">重置离线缓存并重载</button>';
+  }
   function init() {
     applyTheme(); syncImgBtn(); bind();
+    var settled = false;
+    /* 看门狗：超过 18 秒仍未就绪，给出可点击的重试入口 */
+    var guard = setTimeout(function () { if (!settled) bootError("加载超时"); }, 18000);
     Promise.all([loadQuiz(), loadAll()]).then(function () {
-      indexAll();
-      renderSidebar();
+      settled = true; clearTimeout(guard);
+      indexAll(); renderSidebar();
+      var okBoards = BOARDS.filter(function (b) { return getBoard(b.id); }).length;
+      if (!okBoards) { bootError("数据未能加载"); return; }   // 全部失败：显示可重试提示，不留空首页
       renderHome();
+      var missing = BOARDS.length - okBoards;
+      if (missing) toast(missing + " 个板块的数据未加载成功，可重试或稍后再打开");  // 部分失败：明确告知
+    }).catch(function (err) {
+      settled = true; clearTimeout(guard);
+      try { indexAll(); renderSidebar(); } catch (e2) {}
+      bootError((err && err.message) || "数据异常");
     });
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
