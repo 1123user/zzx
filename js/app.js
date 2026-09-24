@@ -303,9 +303,15 @@
     }, 1700);
   }
   function openSidebar() { dom.sidebar.classList.add("open"); dom.scrim.hidden = false; requestAnimationFrame(function () { dom.scrim.classList.add("show"); }); }
-  function closeSidebar() { dom.sidebar.classList.remove("open"); dom.scrim.classList.remove("show"); setTimeout(function () { dom.scrim.hidden = true; }, 260); }
+  function closeSidebar() {
+    if (!dom.sidebar) return;
+    dom.sidebar.classList.remove("open");
+    dom.scrim.classList.remove("show");
+    setTimeout(function () { dom.scrim.hidden = true; }, 260);
+  }
 
   function show(view) {
+    closeSidebar(); // 任何视图切换都收起侧边栏，避免浮层压住内容
     ["viewHome", "viewStudy", "viewQuiz", "viewLine", "viewCase", "viewEssay", "viewAnalysis"].forEach(function (v) { $(v).hidden = true; });
     $(view).hidden = false;
   }
@@ -1553,9 +1559,9 @@
     $("searchBtn").onclick = openSearch;
     $("searchClose").onclick = closeSearch;
     $("searchInput").addEventListener("input", function () { clearTimeout(this._t); this._t = setTimeout(renderSearch, 180); });
-    $("quizBtn").onclick = function () { if (state.boardId) startQuiz(state.boardId, 12); else renderQuizHome(); };
-    $("timelineBtn").onclick = function () { loadAll().then(function () { indexAll(); renderLine(); }); };
-    $("caseBtn").onclick = function () { loadAll().then(function () { indexAll(); renderCase(""); }); };
+    $("quizBtn").onclick = function () { closeSidebar(); if (state.boardId) startQuiz(state.boardId, 12); else renderQuizHome(); };
+    $("timelineBtn").onclick = function () { closeSidebar(); loadAll().then(function () { indexAll(); renderLine(); }); };
+    $("caseBtn").onclick = function () { closeSidebar(); loadAll().then(function () { indexAll(); renderCase(""); }); };
     $("essayBtn").onclick = function () { renderEssay(); closeSidebar(); };
     $("analysisBtn").onclick = function () { renderAnalysis(wrongCount() ? "weak" : "now"); };
     viewBind();
