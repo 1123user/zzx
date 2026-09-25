@@ -156,26 +156,180 @@
         for (var i = 0; i < localStorage.length; i++) {
           var k = localStorage.key(i);
           if (k && k.indexOf("zzxdb:") === 0) {
-            try { out[k.slice(6)] = JSON.parse(localStorage.getItem(k)); } catch (e) {}
+            var v = safeJSON(localStorage.getItem(k));
+            if (v) out[k.slice(6)] = v;
           }
         }
       } catch (e) {}
       return out;
     });
   }
+  /* ---------------- 数据防污染 / 完整性校验 ----------------
+     参考开源实践（OWASP 输入校验、idb-keyval 的写入约定、以及「写入前留一份好副本」的自愈模式）：
+       · 解析一律走 safeJSON：JSON.parse 带 reviver，丢掉 __proto__ / constructor / prototype 键，
+         防止「原型链污染」这类通过数据注入影响全局对象的攻击；
+       · 读入的进度/错题数据一律过一遍白名单校验（键格式、类型、长度、数量上限），
+         任何越界/异常字段都会被丢弃而不是带进内存与渲染层；
+       · 每条记录带指纹 sig；读回时校验，不匹配就回滚到上一次正常副本，
+         再不行就把坏数据隔离（quarantine）并以干净数据继续——坏数据永远不会污染正在使用的数据；
+       · 单条记录序列化超过 3MB 拒绝写入，避免异常数据把存储写爆。 */
+  var ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
+  var MAX_REC_BYTES = 3 * 1024 * 1024;
+
+  function isPlainObject(o) {
+    return !!o && typeof o === "object" && !Array.isArray(o) && Object.getPrototypeOf(o) === Object.prototype;
+  }
+  function safeJSON(str) {
+    try {
+      return JSON.parse(String(str), function (k, v) {
+        if (k === "__proto__" || k === "constructor" || k === "prototype") return undefined;
+        return v;
+      });
+    } catch (e) { return null; }
+  }
+  function capStr(s, n) {
+    s = String(s == null ? "" : s);
+    return s.length > n ? s.slice(0, n) : s;
+  }
+  function capInt(v, min, max, dflt) {
+    var n = (typeof v === "number" && isFinite(v)) ? Math.round(v) : NaN;
+    if (!isFinite(n)) return dflt;
+    return Math.min(max, Math.max(min, n));
+  }
+  function sanitizeAnswer(a) {
+    if (Array.isArray(a)) return a.slice(0, 8).filter(function (x) { return typeof x === "number" && x >= 0 && x <= 7; });
+    return (typeof a === "number" && a >= 0 && a <= 7) ? a : 0;
+  }
+  function sanitizeOpts(o) {
+    return (Array.isArray(o) ? o : []).slice(0, 8).map(function (x) { return capStr(x, 300); });
+  }
+  /* 进度：只保留已知板块 + 合法考点 id；类型/上限全部收紧 */
+  function sanitizeProgressData(d) {
+    var out = {};
+    if (!isPlainObject(d)) return out;
+    Object.keys(d).forEach(function (bid) {
+      if (!/^[a-z]{2}$/.test(bid)) return;
+      var src = d[bid]; if (!isPlainObject(src)) return;
+      var t = { done: {}, current: null, page: 0 }, n = 0;
+      if (isPlainObject(src.done)) {
+        Object.keys(src.done).forEach(function (id) {
+          if (n >= 4000 || !ID_RE.test(id)) return;
+          if (src.done[id]) { t.done[id] = 1; n++; }
+        });
+      }
+      if (typeof src.current === "string" && ID_RE.test(src.current)) t.current = src.current;
+      t.page = capInt(src.page, 0, 500, 0);
+      out[bid] = t;
+    });
+    return out;
+  }
+  /* 错题库：字段白名单 + 类型/长度/数量上限 */
+  function sanitizeWrongData(d) {
+    var out = blankWrong();
+    if (!isPlainObject(d)) return out;
+    var qs = isPlainObject(d.q) ? d.q : {};
+    Object.keys(qs).slice(0, 3000).forEach(function (id) {
+      if (!ID_RE.test(id)) return;
+      var e = qs[id]; if (!isPlainObject(e)) return;
+      out.q[id] = {
+        w: capInt(e.w, 0, 9999, 0), r: capInt(e.r, 0, 9999, 0), streak: capInt(e.streak, 0, 9999, 0),
+        last: capInt(e.last, 0, 9999999999999, 0),
+        b: capStr(e.b, 8), u: capStr(e.u, 16), j: capStr(e.j, 64),
+        y: capInt(e.y, 0, 2100, 0), n: capInt(e.n, 0, 500, 0),
+        q: capStr(e.q, 600), e: capStr(e.e, 3000),
+        a: sanitizeAnswer(e.a), o: sanitizeOpts(e.o)
+      };
+    });
+    ["b", "u"].forEach(function (grp) {
+      var src = isPlainObject(d[grp]) ? d[grp] : {};
+      Object.keys(src).slice(0, 200).forEach(function (k) {
+        if (!ID_RE.test(k)) return;
+        var s = src[k]; if (!isPlainObject(s)) return;
+        out[grp][k] = { t: capInt(s.t, 0, 999999, 0), c: capInt(s.c, 0, 999999, 0) };
+      });
+    });
+    (Array.isArray(d.rounds) ? d.rounds : []).slice(0, 30).forEach(function (rd) {
+      if (!isPlainObject(rd)) return;
+      out.rounds.push({
+        at: capInt(rd.at, 0, 9999999999999, 0), label: capStr(rd.label, 40),
+        t: capInt(rd.t, 0, 500, 0), c: capInt(rd.c, 0, 500, 0),
+        ids: (Array.isArray(rd.ids) ? rd.ids : []).slice(0, 500).filter(function (x) { return typeof x === "string" && ID_RE.test(x); })
+      });
+    });
+    if (isPlainObject(d.cleared)) {
+      Object.keys(d.cleared).slice(0, 3000).forEach(function (id) {
+        if (ID_RE.test(id)) out.cleared[id] = capInt(d.cleared[id], 0, 9999999999999, 0);
+      });
+    }
+    return out;
+  }
+  /* 记录指纹：长度 + FNV-1a 散列（用于发现被篡改/损坏的数据，不用于安全加密） */
+  function sigOf(data) {
+    var s = "";
+    try { s = JSON.stringify(data) || ""; } catch (e) { s = ""; }
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+    return "s1." + s.length.toString(36) + "." + h.toString(36);
+  }
+  /* 读回校验：指纹不符 → 回滚上一次正常副本 → 再不行就隔离坏数据 */
+  function verifyRecords() {
+    var restored = 0, quarantined = 0;
+    Object.keys(mem).forEach(function (k) {
+      if (k === "meta" || k === "session" || k.indexOf("acc:") === 0) return;
+      if (k.indexOf("backup:") === 0) return;
+      if (k.indexOf("quarantine:") === 0) return;
+      var rec = mem[k];
+      if (!isPlainObject(rec) || typeof rec.sig !== "string") return;   // 旧版记录无指纹：跳过（下次写入自动补上）
+      if (rec.sig === sigOf(rec.data)) return;
+      var bak = mem["backup:" + k];
+      if (bak && isPlainObject(bak) && bak.sig === sigOf(bak.data)) {
+        mem[k] = bak;
+        dirtyKeys[k] = 1;                      // 回滚结果必须写回数据库，否则下次启动又会读到坏数据
+        restored++;
+      } else {
+        var qk = "quarantine:" + k + ":" + Date.now();
+        mem[qk] = rec;                         // 留住证据，便于排查
+        dirtyKeys[qk] = 1;                     // 隔离副本落库
+        delete mem[k];
+        delRecInDb(k);                         // 坏记录从库里删掉（内存里已移出）
+        quarantined++;
+      }
+    });
+    if (restored || quarantined) flushNow();       // 把自愈结果立刻落库
+    if (restored) toastOnce("检测到学习数据异常，已自动回滚到上一次正常状态");
+    if (quarantined) toastOnce("检测到数据损坏，已隔离坏数据并继续使用（数据未被污染）");
+    return { restored: restored, quarantined: quarantined };
+  }
+
   /* ---- 内存读写（同步）与去抖落盘 ---- */
   function recData(key) { var r = mem[key]; return r ? r.data : null; }
   function recAt(key) { var r = mem[key]; return r ? (r.at || 0) : 0; }
   function setRec(key, data, noFlush) {
     var prev = mem[key];
-    mem[key] = { rev: (prev && prev.rev ? prev.rev : 0) + 1, at: Date.now(), data: data };
+    /* 落库前先规范化 + 限长：异常/超大数据不允许写进数据库 */
+    var payload = data;
+    if (key.indexOf("progress") === 0) payload = sanitizeProgressData(data);
+    else if (key.indexOf("wrong") === 0) payload = sanitizeWrongData(data);
+    var size = 0;
+    try { size = (JSON.stringify(payload) || "").length; } catch (e) { size = MAX_REC_BYTES + 1; }
+    if (size > MAX_REC_BYTES) {
+      toastOnce("单条数据过大（超过 3MB），已拒绝写入以保护存储");
+      return prev || null;
+    }
+    /* 覆盖前留住「上一次正常副本」，供自愈回滚 */
+    if (prev && typeof prev.sig === "string") {
+      try { if (prev.sig === sigOf(prev.data)) mem["backup:" + key] = prev; } catch (e) {}
+    }
+    mem[key] = { rev: (prev && prev.rev ? prev.rev : 0) + 1, at: Date.now(), data: payload, sig: sigOf(payload) };
     dirtyKeys[key] = 1;
     if (!noFlush) flushSoon();
     return mem[key];
   }
   function delRec(key) {
     if (mem[key]) { delete mem[key]; dirtyKeys[key] = 1; flushSoon(); }
+    delete mem["backup:" + key];
     delRecInDb(key);
+    delRecInDb("backup:" + key);
   }
   function flushSoon(ms) {
     if (flushTimer) return;
@@ -185,7 +339,7 @@
     if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
     var keys = Object.keys(dirtyKeys);
     dirtyKeys = {};
-    keys.forEach(function (k) { if (mem[k]) putRec(k, mem[k], false); });
+    keys.forEach(function (k) { if (mem[k]) putRec(k, mem[k], false); });   // 真正落盘
     broadcast({ type: "changed", keys: keys });
   }
   function broadcast(msg) {
@@ -345,11 +499,13 @@
     try {
       var accRaw = localStorage.getItem("zzx.accounts.v1");
       if (accRaw) {
-        var a = JSON.parse(accRaw);
-        Object.keys((a && a.users) || {}).forEach(function (u) { setRec("acc:" + u, a.users[u], true); n++; });
+        var a = safeJSON(accRaw);
+        Object.keys((a && a.users) || {}).forEach(function (u) {
+          if (/^[A-Za-z0-9\u4e00-\u9fa5._-]{1,20}$/.test(u)) { setRec("acc:" + u, a.users[u], true); n++; }
+        });
       }
       var sesRaw = localStorage.getItem("zzx.session.v1") || sessionStorage.getItem("zzx.session.v1");
-      if (sesRaw) { try { setRec("session", JSON.parse(sesRaw), true); n++; } catch (e) {} }
+      if (sesRaw) { var sr = safeJSON(sesRaw); if (isPlainObject(sr)) { setRec("session", sr, true); n++; } }
       var keys = [];
       try {
         for (var i = 0; i < localStorage.length; i++) {
@@ -404,9 +560,15 @@
     name = String(name || "").trim();
     var a = readAccounts();
     if (!name) return Promise.reject(new Error("请输入用户名"));
-    if (name.length > 20) return Promise.reject(new Error("用户名最多 20 个字"));
+    /* 用户名白名单：只允许中英文、数字、下划线、点、短横线，1-20 位。
+       这样用户名不会带进数据库键名里造成键空间混淆，也不会在页面上形成注入面 */
+    if (!/^[A-Za-z0-9\u4e00-\u9fa5._-]{1,20}$/.test(name)) {
+      return Promise.reject(new Error("用户名只能用中英文、数字、下划线、点与短横线（1-20 位）"));
+    }
     if (a.users[name]) return Promise.reject(new Error("该用户名已存在，请直接登录"));
+    if (Object.keys(a.users).length >= 20) return Promise.reject(new Error("本机最多保存 20 个账号"));
     if (String(pw || "").length < 4) return Promise.reject(new Error("密码至少 4 位"));
+    if (String(pw || "").length > 64) return Promise.reject(new Error("密码最多 64 位"));
     var salt = newSalt();
     return hashPassword(pw, salt, PBKDF2_ITER).then(function (hash) {
       a.users[name] = { salt: salt, iter: PBKDF2_ITER, hash: hash, at: Date.now() };
@@ -437,15 +599,12 @@
     var d = recData("session");
     if (d && d.user && readAccounts().users[d.user]) return d.user;
     try {                                        // 兜底：本次会话内的临时登录
-      var raw = sessionStorage.getItem(SSESS_KEY);
-      if (raw) {
-        var t = JSON.parse(raw);
-        if (t && t.user && readAccounts().users[t.user]) return t.user;
-      }
+      var t = safeJSON(sessionStorage.getItem(SSESS_KEY) || "null");
+      if (isPlainObject(t) && t.user && readAccounts().users[t.user]) return t.user;
     } catch (e) {}
     try {                                        // 兜底：旧版本留在 localStorage 的会话
-      var old = JSON.parse(localStorage.getItem("zzx.session.v1") || "null");
-      if (old && old.user && readAccounts().users[old.user]) return old.user;
+      var old = safeJSON(localStorage.getItem("zzx.session.v1") || "null");
+      if (isPlainObject(old) && old.user && readAccounts().users[old.user]) return old.user;
     } catch (e) {}
     return null;
   }
@@ -478,9 +637,10 @@
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
-  /* 整十/整五/整百周年数字红色高亮：匹配 "XX周年" 或 "XX 周年"，数字能被 5 整除即高亮 */
+  /* 整十/整五/整百周年数字红色高亮：匹配 "XX周年" 或 "XX 周年"，数字能被 5 整除即高亮。
+     先做 HTML 转义再插入高亮标签——任何来自数据/导入文件的字符串都不会变成可执行标记 */
   function hl(s) {
-    return String(s == null ? "" : s).replace(/(\d+)\s*周年/g, function (m, n) {
+    return esc(s).replace(/(\d+)\s*周年/g, function (m, n) {
       var num = parseInt(n, 10);
       if (num && num % 5 === 0) return '<span class="anniv">' + m + "</span>";
       return m;
@@ -493,8 +653,7 @@
   var dom = {};
 
   function loadProgress() {
-    var d = recData(userKey(STORE_KEY));
-    return (d && typeof d === "object") ? d : {};
+    return sanitizeProgressData(recData(userKey(STORE_KEY)));
   }
   function saveProgress() {
     if (document.body.classList.contains("auth-mode")) return;   // 登录页上不写入，避免串账号
@@ -514,20 +673,31 @@
       toast("已导出学习数据，可用于备份或换机恢复");
     } catch (e) { toast("导出失败，请更换浏览器重试"); }
   }
-  function importData(file) {
+  function importData(file, inputEl) {
+    /* 导入是唯一的「外部数据入口」，按不可信输入处理：
+       限大小 → 原型链安全解析 → 白名单校验 → 才允许写入。
+       注意：必须等 FileReader 读完再清空 input——过早置空会让文件句柄失效，读不到内容 */
+    if (!file) return;
+    function resetInput() { try { if (inputEl) inputEl.value = ""; } catch (e) {} }
+    if (file.size > 2 * 1024 * 1024) { toast("文件过大（超过 2MB），已拒绝导入"); resetInput(); return; }
     var fr = new FileReader();
     fr.onload = function () {
       try {
-        var d = JSON.parse(String(fr.result || ""));
-        if (!d || typeof d !== "object" || (!d.progress && !d.wrong)) throw new Error("bad");
+        var d = safeJSON(fr.result);
+        if (!isPlainObject(d) || (!d.progress && !isPlainObject(d.wrong))) { toast("文件格式不正确，导入失败"); return; }
         if (!confirm("导入会覆盖当前账号的进度与错题库，确定继续？")) return;
-        if (d.progress) { progress = d.progress; saveProgress(); }
-        if (d.wrong && d.wrong.q) { wrong = d.wrong; saveWrong(); }
+        var np = sanitizeProgressData(d.progress);
+        var nw = sanitizeWrongData(d.wrong);
+        if (!Object.keys(np).length && !Object.keys(nw.q).length) { toast("文件里没有可用的学习数据"); return; }
+        progress = np; saveProgress();
+        wrong = nw; saveWrong();
         indexAll(); renderSidebar(); renderHome(); syncWrongBadge();
-        toast("学习数据已导入" + (d.user ? "（来自 " + esc(d.user) + "）" : ""));
+        toast("已导入：进度 " + Object.keys(np).length + " 个板块 · 错题 " + Object.keys(nw.q).length + " 道" +
+          (typeof d.user === "string" ? "（来自 " + capStr(d.user, 20) + "）" : ""));
       } catch (e) { toast("文件格式不正确，导入失败"); }
+      resetInput();
     };
-    fr.onerror = function () { toast("读取文件失败"); };
+    fr.onerror = function () { toast("读取文件失败"); resetInput(); };
     fr.readAsText(file);
   }
   function subProgress(id) {
@@ -563,14 +733,7 @@
      t=作答数 c=答对数 w=答错累计 r=答对累计 streak=连续答对（满 2 次视为已攻克，自动移出错题库） */
   function blankWrong() { return { q: {}, b: {}, u: {}, rounds: [], cleared: {} }; }
   function loadWrong() {
-    var d = recData(userKey(WRONG_KEY));
-    if (!d || typeof d !== "object") return blankWrong();
-    if (!d.q || typeof d.q !== "object") d.q = {};
-    if (!d.b || typeof d.b !== "object") d.b = {};
-    if (!d.u || typeof d.u !== "object") d.u = {};
-    if (!Array.isArray(d.rounds)) d.rounds = [];
-    if (!d.cleared || typeof d.cleared !== "object") d.cleared = {};   // 已攻克的题：合并时不会被"复活"
-    return d;
+    return sanitizeWrongData(recData(userKey(WRONG_KEY)));
   }
   var wrong = blankWrong();
   function saveWrong() {
@@ -1080,13 +1243,13 @@
     }
 
     h += '<div class="item-head">';
-    h += '<span class="tagline k-' + it.kind + '">' + (KIND_LABEL[it.kind] || "考点") + "</span>";
+    h += '<span class="tagline k-' + esc(KIND_LABEL[it.kind] ? it.kind : "topic") + '">' + (KIND_LABEL[it.kind] || "考点") + "</span>";
     if (it.dateLabel) h += ' <span class="ym">' + esc(it.dateLabel) + "</span>";
-    if (it.anniv) h += ' <span class="anniv-badge">本年度整周年重点 · ' + it.anniv + " 周年</span>";
-    h += "<h2>" + hl(esc(it.title)) + "</h2>";
-    if (it.sub) h += '<p class="sub">' + hl(esc(it.sub)) + "</p>";
+    if (it.anniv) h += ' <span class="anniv-badge">本年度整周年重点 · ' + esc(it.anniv) + " 周年</span>";
+    h += "<h2>" + hl(it.title) + "</h2>";
+    if (it.sub) h += '<p class="sub">' + hl(it.sub) + "</p>";
     if (it.tags && it.tags.length) h += '<div class="item-tags">' + it.tags.map(function (t) {
-      return '<button type="button" class="chip" data-tag="' + esc(t) + '">' + hl(esc(t)) + "</button>";
+      return '<button type="button" class="chip" data-tag="' + esc(t) + '">' + hl(t) + "</button>";
     }).join("") + "</div>";
     h += "</div>";
 
@@ -1229,7 +1392,7 @@
         '<div class="tl-body"><h4>' + esc(it.title) + "</h4>" +
         "<p>" + esc(it.sub || "") + "</p>" +
         '<div class="tags"><button type="button" class="chip" data-jump="' + esc(it.id) + '">查看考点</button>' +
-        (it.kind ? '<span class="tagline k-' + it.kind + '">' + (KIND_LABEL[it.kind] || "") + "</span>" : "") + "</div></div></div>";
+        (it.kind ? '<span class="tagline k-' + esc(KIND_LABEL[it.kind] ? it.kind : "topic") + '">' + (KIND_LABEL[it.kind] || "") + "</span>" : "") + "</div></div></div>";
     }
     var h = '<div class="wrap">';
     h += '<div class="crumb"><span>双主线时间轴</span><span>·</span><span>事件轴 ⇄ 党的理论政策轴</span></div>';
@@ -1300,7 +1463,7 @@
       h += hits.map(function (x) {
         return '<div class="anchor-card" style="margin-bottom:10px">' +
           "<h4>" + esc(x.it.title) + " ← " + esc(x.c.q) + "</h4>" +
-          '<p>' + x.c.a + "</p>" +
+          "<p>" + esc(x.c.a) + "</p>" +
           '<div class="b-link" style="margin-top:9px"><button type="button" data-jump="' + esc(x.it.id) + '"><i>原理</i>查看完整考点</button></div></div>';
       }).join("");
     }
@@ -2104,8 +2267,8 @@
     if ($("importBtn") && $("importFile")) $("importBtn").onclick = function () { $("importFile").click(); };
     if ($("importFile")) $("importFile").onchange = function () {
       var f = this.files && this.files[0];
-      if (f) importData(f);
-      this.value = "";
+      if (f) importData(f, this);        // 读完再清空（见 importData 内注释）
+      else this.value = "";
     };
     /* 数据落盘与多标签页同步：
        切后台/离开页面立即强制落盘（避免丢数据）；切回前台或收到其它标签页的改动广播时做一次合并 */
@@ -2464,8 +2627,18 @@
     host.className = "boot-hint is-error";
     host.innerHTML = "<span>数据加载失败" + (reason ? "（" + esc(reason) + "）" : "") +
       "，请检查网络后重试。已缓存的内容在离线时仍可查看。</span>" +
-      '<button type="button" class="boot-retry" onclick="location.reload()">重新加载</button>' +
-      '<button type="button" class="boot-retry ghost" onclick="window.zzxHardReset&&window.zzxHardReset()">重置离线缓存并重载</button>';
+      '<button type="button" class="boot-retry" data-boot-retry="reload">重新加载</button>' +
+      '<button type="button" class="boot-retry ghost" data-boot-retry="reset">重置离线缓存并重载</button>';
+    /* 不用内联 onclick（严格 CSP 下会被拦截），改为绑定事件 */
+    if (host.dataset.retryBound !== "1") {
+      host.dataset.retryBound = "1";
+      host.addEventListener("click", function (e) {
+        var b = e.target && e.target.closest ? e.target.closest("[data-boot-retry]") : null;
+        if (!b) return;
+        if (b.getAttribute("data-boot-retry") === "reset") { if (window.zzxHardReset) window.zzxHardReset(); }
+        else location.reload();
+      });
+    }
   }
   /* ---------------- 登录 / 注册视图 ---------------- */
   var authTab = "login";
@@ -2586,6 +2759,7 @@
     recGetAll().then(function (rows) {
       mem = rows || {};
       migrateLegacy();
+      verifyRecords();          // 指纹校验：损坏/被篡改的记录会回滚或隔离，不进内存
       askPersist();
       var sess = readSession();
       if (sess) { signIn(sess); return; }    // 「记住登录」：直接进入自己的进度

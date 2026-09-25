@@ -6,7 +6,7 @@
       activate 时清理旧版本缓存并通知页面「新版本已就绪」；
    4) 预缓存与所有网络请求均有兜底，任何一步失败都不会把资源请求打死。
 */
-const CACHE = 'zzx-shell-v20';
+const CACHE = 'zzx-shell-v21';
 /* 配图为 WebP，缓存名与内容版本对应；改名会自动清理旧图片缓存 */
 const RUNTIME = 'zzx-runtime-v14';
 
@@ -14,6 +14,8 @@ const SHELL = [
   './',
   './index.html',
   './css/app.css',
+  './js/theme.js',
+  './js/pwa.js',
   './js/app.js',
   './js/data/sg.js',
   './js/data/sgdoc.js',
@@ -50,10 +52,20 @@ function safePut(cacheName, key, res) {
   } catch (e) { /* 写入失败不影响页面 */ }
 }
 
-/* 后台静默校验更新：结果写回缓存，供下次打开直接使用 */
-function revalidate(url, req, cacheName, key) {
+/* 后台静默校验更新：结果写回缓存，供下次打开直接使用。
+   onlyIfHtml：仅当响应确实是 HTML 时才写进外壳缓存——
+   否则任何同源导航（例如跳到 /js/xxx.js）都会把非页面内容写成 index.html，污染外壳（缓存投毒） */
+function revalidate(url, req, cacheName, key, onlyIfHtml) {
   return fetch(netRequest(url.href, true))
-    .then((res) => { safePut(cacheName, key || url.href, res); return res; })
+    .then((res) => {
+      if (onlyIfHtml) {
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        const isPage = ct.indexOf('text/html') >= 0;
+        if (!isPage) return res;                    // 不是页面：只用它本次响应，绝不写入外壳缓存
+      }
+      safePut(cacheName, key || url.href, res);
+      return res;
+    })
     .catch(function () { return fetch(req); });
 }
 
@@ -117,11 +129,12 @@ self.addEventListener('fetch', (e) => {
 
   // 页面导航：缓存秒出（后台校验更新）；无缓存才等网络；再不行给离线页
   if (req.mode === 'navigate') {
-    const net = revalidate(url, req, CACHE, './index.html');
+    const net = revalidate(url, req, CACHE, './index.html', true);
     e.waitUntil(net.catch(function () {}));
     e.respondWith(
       caches.match('./index.html').then(function (cached) {
-        if (cached) return cached;
+        /* 只认真正的 HTML：万一旧版本曾把非页面内容缓存进来，这里自动跳过并改走网络 */
+        if (cached && (cached.headers.get('content-type') || '').toLowerCase().indexOf('text/html') >= 0) return cached;
         return net.then((r) => r || caches.match(req)).then((r) => r || offlineResponse());
       }).catch(function () { return offlineResponse(); })
     );

@@ -2,6 +2,10 @@
 <html lang="zh-CN" data-theme="auto">
 <head>
 <meta charset="utf-8">
+<!-- 内容安全策略：脚本只允许本站文件（禁止内联/外域脚本），
+     这样即使有恶意字符串被塞进数据，也无法在本站执行脚本、篡改学习数据 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="format-detection" content="telephone=no">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
@@ -16,9 +20,7 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="manifest" href="manifest.json">
 
-<script>/* 提前应用主题，避免深色模式下的白屏闪动 */
-(function(){try{var t=localStorage.getItem("zzx.theme")||"auto";document.documentElement.setAttribute("data-theme",t);}catch(e){}})();
-</script>
+<script src="js/theme.js"></script>
 <style>/* 首屏关键样式：内联，冷启动时 HTML 一到就能立刻画出界面骨架，无需等待样式表往返 */
 :root{--bg:#f6f4ef;--bg-elevated:#ffffff;--bg-sunken:#eeeae2;--bg-hover:#f0ece4;--line:#e2ddd2;--line-soft:#ece7dd;
   --fg:#1d1b18;--fg-2:#57534b;--fg-3:#8d8880;--accent:#b8322f;--r:14px;--r-sm:9px;
@@ -226,27 +228,6 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
 <div class="toast" id="toast" hidden></div>
 
 <script src="js/app.js"></script>
-<script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./sw.js').then(function (reg) {
-      /* 更新检查：节流执行，绝不刷新页面，避免 iOS 上出现刷新死循环。
-         新版本会由 Service Worker 自身接管，下次打开即为最新版（代码资源走网络优先） */
-      var lastAt = 0;
-      function checkUpdate() {
-        var now = Date.now();
-        if (now - lastAt < 30000) return;
-        lastAt = now;
-        try { reg.update(); } catch (e) {}
-      }
-      checkUpdate();
-      document.addEventListener('visibilitychange', function () {
-        if (!document.hidden) checkUpdate();
-      });
-      window.addEventListener('online', checkUpdate);
-    }).catch(function () {});
-  });
-}
-</script>
+<script src="js/pwa.js"></script>
 </body>
 </html>
