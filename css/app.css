@@ -55,6 +55,10 @@ html[data-theme="dark"]{
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none !important}
 html,body{height:100%}
+/* 手机上系统状态栏/底部横条所在的那一条不属于页面布局视口，
+   它显示的是「画布底色」。这里把画布底色设成界面本色（顶栏/操作栏同色），
+   于是上下两条不再露出页面底色——浅色下不会出现灰蒙蒙的带，深色下也不会出现黑边 */
+html{background:var(--bg-elevated)}
 body{
   margin:0;background:var(--bg);color:var(--fg);
   font:15px/1.72 var(--sans);
