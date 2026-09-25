@@ -316,6 +316,8 @@ button{cursor:pointer;border:0;background:none}
 .btn-primary:hover{filter:brightness(1.06)}
 .btn:disabled{opacity:.4}
 .btn-sm{flex:0 0 auto;padding:12px 14px;font-size:13px}
+.btn-done{background:#e8f5ee;color:#1a7f56;border-color:#9fd7bd}
+html[data-theme="dark"] .btn-done{background:#14301f;color:#7fd8a9;border-color:#2f5a42}
 
 /* 时间轴 */
 .axis-switch{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}

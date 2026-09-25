@@ -34,7 +34,6 @@
   ];
   var KIND_LABEL = { event: "事件", meeting: "会议", doc: "文献", theory: "理论", principle: "原理", topic: "专题" };
 
-  var STORE_KEY = "zzx.progress.v1";
   var THEME_KEY = "zzx.theme";
   var IMG_KEY = "zzx.img";
   var THEMES = [{ v: "auto", label: "跟随系统" }, { v: "light", label: "浅色" }, { v: "dark", label: "深色" }];
@@ -44,24 +43,333 @@
     imgMode: localStorage.getItem(IMG_KEY) || "on",
     user: null                       // 当前登录账号；null = 本机身份（无账号）
   };
-  /* ---------------- 账号（本地账号：数据只存本机，登录状态自动记住） ----------------
-     存储：
-       zzx.accounts.v1 = { users: { 用户名: { salt, iter, hash, at } } }   密码用 PBKDF2-SHA256 加盐散列，不存明文
-       zzx.session.v1  = { user, at }                                     「记住登录」的会话
-     每个账号一份独立数据：进度/错题库的键都会加上 ::用户名 后缀 */
-  var ACC_KEY = "zzx.accounts.v1";
-  var SESS_KEY = "zzx.session.v1";
+  /* ---------------- 本地数据库（IndexedDB）+ 内存缓存 ----------------
+     为什么不用 localStorage 存学习数据（沿用开源实践 idb-keyval / Dexie 的思路）：
+       · localStorage 只有约 5MB，多账号 + 错题库很容易写满，而且写满时是静默失败；
+       · 同步写入会卡住主线程，账号一多、数据一大就明显卡顿；
+       · 写入非事务，中途失败会留下"半截 JSON"，读出来就报错。
+     所以：
+       · 账号、进度、错题、会话都放进 IndexedDB 的单表 kv（异步 + 事务写入，容量数百 MB）；
+       · 界面仍然同步读内存缓存；写入先改动内存、去抖 500ms 批量落盘，切后台/离开页面强制落盘；
+       · 每条记录带 rev 与时间戳；发现同一键被别处改过（另一个标签页/另一个账号页）就做合并：
+         进度取并集（已掌握只会增加，不会丢）、错题计数取最大值、攻克记录以清除标记为准；
+       · 写入超配额先自动瘦身重试，再降级到 localStorage，并明确告知用户；
+       · 首次启动把旧的 localStorage 数据整体搬进库（旧键保留不删，可随时回退）。 */
+  var DB_NAME = "zzx-db", DB_STORE = "kv", DB_VER = 1;
+  var dbp = null, dbFailed = false, bc = null;
+  var mem = {};              // key -> { rev, at, data }
+  var dirtyKeys = {}, flushTimer = null;
+  var STORE_KEY = "progress";     // 逻辑键前缀（进度）
+  var WRONG_KEY = "wrong";        // 逻辑键前缀（错题库）
+  var SSESS_KEY = "zzx.session.tmp";   // 未勾选「记住登录」时的临时会话（仅本次会话有效）
   var LAST_KEY = "zzx.lastUser";
   var PBKDF2_ITER = 150000;
 
-  function readAccounts() {
-    try {
-      var d = JSON.parse(localStorage.getItem(ACC_KEY) || "null");
-      if (d && d.users && typeof d.users === "object") return d;
-    } catch (e) {}
-    return { users: {} };
+  function idbOpen() {
+    if (dbp) return dbp;
+    dbp = new Promise(function (resolve, reject) {
+      if (!window.indexedDB) return reject(new Error("no-indexeddb"));
+      var req = window.indexedDB.open(DB_NAME, DB_VER);
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error || new Error("idb-error")); };
+      req.onblocked = function () { reject(new Error("idb-blocked")); };
+    });
+    return dbp;
   }
-  function writeAccounts(a) { try { localStorage.setItem(ACC_KEY, JSON.stringify(a)); } catch (e) {} }
+  function idbTx(mode, fn) {
+    return idbOpen().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(DB_STORE, mode);
+        var out = fn(tx.objectStore(DB_STORE));
+        tx.oncomplete = function () { resolve(out && out.result !== undefined ? out.result : out); };
+        tx.onerror = function () { reject(tx.error); };
+        tx.onabort = function () { reject(tx.error); };
+      });
+    });
+  }
+  function idbGetAll() {
+    return idbOpen().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(DB_STORE, "readonly");
+        var out = {}, req = tx.objectStore(DB_STORE).openCursor();
+        req.onsuccess = function () {
+          var c = req.result;
+          if (!c) return resolve(out);
+          out[c.key] = c.value;
+          c.continue();
+        };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+  function isQuotaErr(e) {
+    return !!e && (e.name === "QuotaExceededError" || e.code === 22 || /quota|storage/i.test(String(e.name || e.message || "")));
+  }
+  function lsRecKey(k) { return "zzxdb:" + k; }
+  function lsPutRec(k, rec) {
+    try { localStorage.setItem(lsRecKey(k), JSON.stringify(rec)); return Promise.resolve(true); }
+    catch (e) { return Promise.reject(e); }
+  }
+  /* 超配额时精简：先丢历史轮次，再丢错题里的选项原文（体积最大且可重建） */
+  function slimRec(rec) {
+    try {
+      var d = rec && rec.data;
+      if (!d) return false;
+      if (Array.isArray(d.rounds) && d.rounds.length > 5) { d.rounds = d.rounds.slice(0, 5); return true; }
+      if (d.q && Object.keys(d.q).length) {
+        var n = 0;
+        Object.keys(d.q).forEach(function (id) { if (d.q[id] && d.q[id].o) { d.q[id].o = []; n++; } });
+        if (n) return true;
+      }
+      if (Array.isArray(d.rounds) && d.rounds.length) { d.rounds = []; return true; }
+    } catch (e) {}
+    return false;
+  }
+  function putRec(key, rec, retried) {
+    return idbTx("readwrite", function (st) { st.put(rec, key); }).catch(function (err) {
+      if (!retried && isQuotaErr(err) && slimRec(rec)) {
+        toastOnce("本机存储空间紧张，已自动精简历史记录");
+        return putRec(key, rec, true);
+      }
+      dbFailed = true;                       // 降级：改用 localStorage 记录表（学习数据仍完整保存）
+      toastOnce("本机存储空间紧张：已自动切换备用存储，建议清理离线缓存");
+      return lsPutRec(key, rec).catch(function () {
+        toastOnce("本机存储已满：请先「导出学习数据」，再清理离线缓存");
+        return false;
+      });
+    });
+  }
+  function delRecInDb(key) {
+    return idbTx("readwrite", function (st) { st.delete(key); }).catch(function () {
+      try { localStorage.removeItem(lsRecKey(key)); } catch (e) {}
+    });
+  }
+  function recGetAll() {
+    return idbGetAll().catch(function () {
+      dbFailed = true;                       // 无 IndexedDB（个别隐私模式）：读 localStorage 记录表
+      var out = {};
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf("zzxdb:") === 0) {
+            try { out[k.slice(6)] = JSON.parse(localStorage.getItem(k)); } catch (e) {}
+          }
+        }
+      } catch (e) {}
+      return out;
+    });
+  }
+  /* ---- 内存读写（同步）与去抖落盘 ---- */
+  function recData(key) { var r = mem[key]; return r ? r.data : null; }
+  function recAt(key) { var r = mem[key]; return r ? (r.at || 0) : 0; }
+  function setRec(key, data, noFlush) {
+    var prev = mem[key];
+    mem[key] = { rev: (prev && prev.rev ? prev.rev : 0) + 1, at: Date.now(), data: data };
+    dirtyKeys[key] = 1;
+    if (!noFlush) flushSoon();
+    return mem[key];
+  }
+  function delRec(key) {
+    if (mem[key]) { delete mem[key]; dirtyKeys[key] = 1; flushSoon(); }
+    delRecInDb(key);
+  }
+  function flushSoon(ms) {
+    if (flushTimer) return;
+    flushTimer = setTimeout(function () { flushTimer = null; flushNow(); }, ms || 500);
+  }
+  function flushNow() {
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    var keys = Object.keys(dirtyKeys);
+    dirtyKeys = {};
+    keys.forEach(function (k) { if (mem[k]) putRec(k, mem[k], false); });
+    broadcast({ type: "changed", keys: keys });
+  }
+  function broadcast(msg) {
+    try {
+      if (!bc && window.BroadcastChannel) bc = new BroadcastChannel("zzx-db");
+      if (bc) bc.postMessage(msg);
+    } catch (e) {}
+  }
+  function toastOnce(msg) {
+    if (toastOnce._t) return;
+    toastOnce._t = 1;
+    setTimeout(function () { toastOnce._t = 0; }, 8000);
+    toast(msg, 4200);
+  }
+  function authMode() { return document.body.classList.contains("auth-mode"); }
+  /* 申请持久化存储：避免系统在空间紧张时清掉学习数据（PWA 通行做法） */
+  function askPersist() {
+    try {
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
+    } catch (e) {}
+  }
+  function storageInfo() {
+    if (navigator.storage && navigator.storage.estimate) {
+      return navigator.storage.estimate()
+        .then(function (e) { return { used: e.usage || 0, quota: e.quota || 0 }; })
+        .catch(function () { return { used: 0, quota: 0 }; });
+    }
+    return Promise.resolve({ used: 0, quota: 0 });
+  }
+  function clearImageCache() {
+    if (typeof caches === "undefined" || !caches.keys) return Promise.resolve(false);
+    return caches.keys().then(function (ks) {
+      return Promise.all(ks.filter(function (k) { return k.indexOf("zzx-runtime") === 0; })
+        .map(function (k) { return caches.delete(k); }));
+    }).then(function () { return true; }).catch(function () { return false; });
+  }
+  /* 存储占用与清理：先说清数据在哪、占多少，再决定清什么（学习数据永远不动） */
+  function showStorage() {
+    storageInfo().then(function (i) {
+      var mb = function (n) { return (n / 1048576).toFixed(1) + " MB"; };
+      var keys = Object.keys(mem);
+      var msg = "本机存储占用：" + mb(i.used) + "\n可用上限：" + (i.quota ? mb(i.quota) : "未知") +
+        "\n\n账号数：" + accountNames().length +
+        "\n进度记录：" + keys.filter(function (k) { return k.indexOf("progress:") === 0; }).length + " 个账号" +
+        "\n错题库记录：" + keys.filter(function (k) { return k.indexOf("wrong:") === 0; }).length + " 个账号" +
+        "\n\n点「确定」清理配图离线缓存（不影响任何学习进度，下次看图会自动重新下载）";
+      if (confirm(msg)) {
+        clearImageCache().then(function (ok) {
+          toast(ok ? "配图缓存已清理，学习数据完好" : "清理失败，请稍后重试");
+        });
+      }
+    });
+  }
+  /* ---- 合并：进度取并集；错题计数取最大；攻克（已清除）以标记为准 ----
+     只有内容确实变了才提升 rev，避免两个标签页互相广播形成无限循环 */
+  function mergeProgressData(localRec, remoteRec) {
+    var older = ((localRec && localRec.at) || 0) >= ((remoteRec && remoteRec.at) || 0) ? remoteRec : localRec;
+    var newer = older === localRec ? remoteRec : localRec;
+    var out = {};
+    [older, newer].forEach(function (r) {
+      var src = (r && r.data) || {};
+      Object.keys(src).forEach(function (b) {
+        var s = src[b] || {};
+        var t = out[b] || (out[b] = { done: {}, current: null, page: 0 });
+        if (!t.done) t.done = {};
+        Object.keys(s.done || {}).forEach(function (id) { if (s.done[id]) t.done[id] = 1; });   // 并集：已掌握只增不减
+        if (s.current != null) t.current = s.current;
+        if (s.page) t.page = s.page;
+      });
+    });
+    return out;
+  }
+  function mergeWrongData(localRec, remoteRec) {
+    var out = blankWrong();
+    [localRec, remoteRec].forEach(function (r) {
+      var src = (r && r.data) || null;
+      if (!src) return;
+      Object.keys(src.q || {}).forEach(function (id) {
+        var b = src.q[id] || {}, a = out.q[id];
+        if (!a) { out.q[id] = JSON.parse(JSON.stringify(b)); return; }
+        a.w = Math.max(a.w || 0, b.w || 0); a.r = Math.max(a.r || 0, b.r || 0);
+        a.streak = Math.max(a.streak || 0, b.streak || 0); a.last = Math.max(a.last || 0, b.last || 0);
+      });
+      ["b", "u"].forEach(function (grp) {
+        Object.keys(src[grp] || {}).forEach(function (k) {
+          var o = out[grp][k] || (out[grp][k] = { t: 0, c: 0 }), s = src[grp][k] || {};
+          o.t = Math.max(o.t, s.t || 0); o.c = Math.max(o.c, s.c || 0);
+        });
+      });
+      Object.keys(src.cleared || {}).forEach(function (id) { out.cleared[id] = Math.max(out.cleared[id] || 0, src.cleared[id] || 0); });
+      (src.rounds || []).forEach(function (rd) {
+        if (!out.rounds.some(function (x) { return x.at === rd.at; })) out.rounds.push(rd);
+      });
+    });
+    Object.keys(out.cleared).forEach(function (id) { delete out.q[id]; });   // 已攻克的题不因合并而复活
+    out.rounds.sort(function (a, b) { return b.at - a.at; });
+    if (out.rounds.length > 20) out.rounds.length = 20;
+    return out;
+  }
+  /* 合并单条记录：内容真的变了才写入并提版本 */
+  function mergeRecFor(key, localRec, remoteRec) {
+    var merged;
+    if (key.indexOf("progress") === 0) merged = mergeProgressData(localRec, remoteRec);
+    else if (key.indexOf("wrong") === 0) merged = mergeWrongData(localRec, remoteRec);
+    else return { rec: remoteRec, changed: true };
+    if (localRec && JSON.stringify(localRec.data) === JSON.stringify(merged)) {
+      return { rec: localRec, changed: false };      // 已经一致：不提版本、不再广播
+    }
+    return {
+      rec: { rev: Math.max((localRec && localRec.rev) || 0, (remoteRec && remoteRec.rev) || 0) + 1, at: Date.now(), data: merged },
+      changed: true
+    };
+  }
+  /* 从库中拉取并合并（切回前台 / 收到其它标签页广播时调用） */
+  function syncAndMerge() {
+    if (dbFailed) return Promise.resolve(false);
+    return idbGetAll().then(function (rows) {
+      var changed = false;
+      Object.keys(rows).forEach(function (k) {
+        var cur = mem[k], rec = rows[k];
+        if (!cur) { mem[k] = rec; changed = true; return; }
+        if ((rec.rev || 0) > (cur.rev || 0)) {           // 别处改过：合并而不是覆盖
+          var m = mergeRecFor(k, cur, rec);
+          if (m.changed) { mem[k] = m.rec; dirtyKeys[k] = 1; changed = true; }
+        }
+      });
+      if (changed) { flushSoon(300); applyUserData(); }
+      return changed;
+    }).catch(function () { return false; });
+  }
+  /* 把内存里的当前账号数据同步到界面状态 */
+  function applyUserData() {
+    var p = recData("progress:" + (state.user || ""));
+    var w = recData("wrong:" + (state.user || ""));
+    if (p) progress = p;
+    if (w && w.q) wrong = w;
+    try { syncWrongBadge(); syncQuizTotal(); renderSidebar(); } catch (e) {}
+    if (!$("viewHome") || $("viewHome").hidden) return;
+    try { renderHome(); } catch (e) {}
+  }
+  function accountNames() {
+    return Object.keys(mem).filter(function (k) { return k.indexOf("acc:") === 0; })
+      .map(function (k) { return k.slice(4); });
+  }
+  function readAccounts() {
+    var users = {};
+    accountNames().forEach(function (n) { var d = recData("acc:" + n); if (d) users[n] = d; });
+    return { users: users };
+  }
+  function writeAccounts(a) {
+    Object.keys(a.users || {}).forEach(function (n) { setRec("acc:" + n, a.users[n]); });
+  }
+  /* 首次启动：把旧的 localStorage 数据整体搬进库（旧键保留，可回退） */
+  function migrateLegacy() {
+    if (mem["meta"]) return 0;
+    var n = 0;
+    try {
+      var accRaw = localStorage.getItem("zzx.accounts.v1");
+      if (accRaw) {
+        var a = JSON.parse(accRaw);
+        Object.keys((a && a.users) || {}).forEach(function (u) { setRec("acc:" + u, a.users[u], true); n++; });
+      }
+      var sesRaw = localStorage.getItem("zzx.session.v1") || sessionStorage.getItem("zzx.session.v1");
+      if (sesRaw) { try { setRec("session", JSON.parse(sesRaw), true); n++; } catch (e) {} }
+      var keys = [];
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && (k.indexOf("zzx.progress.v1") === 0 || k.indexOf("zzx.wrong.v1") === 0)) keys.push(k);
+        }
+      } catch (e) {}
+      keys.forEach(function (k) {
+        var user = k.indexOf("::") >= 0 ? k.slice(k.indexOf("::") + 2) : "";
+        var kind = k.indexOf("zzx.progress.v1") === 0 ? "progress" : "wrong";
+        try {
+          var v = JSON.parse(localStorage.getItem(k));
+          if (v && !mem[kind + ":" + user]) { setRec(kind + ":" + user, v, true); n++; }
+        } catch (e) {}
+      });
+    } catch (e) {}
+    setRec("meta", { v: 1, migratedAt: Date.now(), n: n }, true);
+    flushNow();
+    return n;
+  }
   function b64encode(buf) {
     var b = new Uint8Array(buf), s = "";
     for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
@@ -116,38 +424,46 @@
       return name;
     });
   }
+  /* 会话：记住登录状态（存库）；不勾选时只放在 sessionStorage，关闭即失效 */
   function setSession(name, remember) {
-    var rec = JSON.stringify({ user: name, at: Date.now() });
+    if (remember) setRec("session", { user: name, at: Date.now() });
+    else delRec("session");
     try {
-      if (remember) { localStorage.setItem(SESS_KEY, rec); sessionStorage.removeItem(SESS_KEY); }
-      else { sessionStorage.setItem(SESS_KEY, rec); localStorage.removeItem(SESS_KEY); }
+      if (remember) sessionStorage.removeItem(SSESS_KEY);
+      else sessionStorage.setItem(SSESS_KEY, JSON.stringify({ user: name, at: Date.now() }));
     } catch (e) {}
   }
   function readSession() {
-    var raw = null;
-    try { raw = localStorage.getItem(SESS_KEY) || sessionStorage.getItem(SESS_KEY); } catch (e) {}
-    if (!raw) return null;
-    try {
-      var d = JSON.parse(raw);
-      return (d && d.user && readAccounts().users[d.user]) ? d.user : null;
-    } catch (e) { return null; }
+    var d = recData("session");
+    if (d && d.user && readAccounts().users[d.user]) return d.user;
+    try {                                        // 兜底：本次会话内的临时登录
+      var raw = sessionStorage.getItem(SSESS_KEY);
+      if (raw) {
+        var t = JSON.parse(raw);
+        if (t && t.user && readAccounts().users[t.user]) return t.user;
+      }
+    } catch (e) {}
+    try {                                        // 兜底：旧版本留在 localStorage 的会话
+      var old = JSON.parse(localStorage.getItem("zzx.session.v1") || "null");
+      if (old && old.user && readAccounts().users[old.user]) return old.user;
+    } catch (e) {}
+    return null;
   }
   function clearSession() {
-    try { localStorage.removeItem(SESS_KEY); sessionStorage.removeItem(SESS_KEY); } catch (e) {}
+    delRec("session");
+    try { sessionStorage.removeItem(SSESS_KEY); localStorage.removeItem("zzx.session.v1"); } catch (e) {}
   }
   function lastName() { try { return localStorage.getItem(LAST_KEY) || ""; } catch (e) { return ""; } }
   function rememberName(u) { try { localStorage.setItem(LAST_KEY, u); } catch (e) {} }
-  /* 按账号隔离数据键；未登录（本机身份）时沿用旧键，历史数据不丢 */
-  function userKey(base) { return state.user ? base + "::" + state.user : base; }
-  /* 首个注册的账号承接升级前的历史数据 */
+  /* 按账号隔离数据键：progress:<用户名> / wrong:<用户名>；空用户名 = 本机身份 */
+  function userKey(base) { return base + ":" + (state.user || ""); }
+  /* 首个注册的账号承接升级前（本机身份）的历史数据 */
   function adoptLegacyData(name) {
-    try {
-      if (Object.keys(readAccounts().users).length !== 1) return;
-      ["zzx.progress.v1", "zzx.wrong.v1"].forEach(function (k) {
-        var v = localStorage.getItem(k);
-        if (v && !localStorage.getItem(k + "::" + name)) localStorage.setItem(k + "::" + name, v);
-      });
-    } catch (e) {}
+    if (accountNames().length !== 1) return;
+    ["progress", "wrong"].forEach(function (kind) {
+      var g = recData(kind + ":");
+      if (g && !recData(kind + ":" + name)) setRec(kind + ":" + name, g);
+    });
   }
 
   var progress = {};
@@ -177,12 +493,12 @@
   var dom = {};
 
   function loadProgress() {
-    try { var r = localStorage.getItem(userKey(STORE_KEY)); return r ? JSON.parse(r) : {}; }
-    catch (e) { return {}; }
+    var d = recData(userKey(STORE_KEY));
+    return (d && typeof d === "object") ? d : {};
   }
   function saveProgress() {
     if (document.body.classList.contains("auth-mode")) return;   // 登录页上不写入，避免串账号
-    try { localStorage.setItem(userKey(STORE_KEY), JSON.stringify(progress)); } catch (e) {}
+    setRec(userKey(STORE_KEY), progress);
   }
   /* 导出/导入：账号数据可在设备之间搬运，也是备份手段 */
   function exportData() {
@@ -245,24 +561,21 @@
      localStorage: zzx.wrong.v1
      { q:{[qid]:{w,r,streak,last,b,u,j,y,n,q,o,a,e}}, b:{板块:{t,c}}, u:{单元:{t,c}}, rounds:[{at,label,t,c,ids}] }
      t=作答数 c=答对数 w=答错累计 r=答对累计 streak=连续答对（满 2 次视为已攻克，自动移出错题库） */
-  var WRONG_KEY = "zzx.wrong.v1";
-  function blankWrong() { return { q: {}, b: {}, u: {}, rounds: [] }; }
+  function blankWrong() { return { q: {}, b: {}, u: {}, rounds: [], cleared: {} }; }
   function loadWrong() {
-    try {
-      var r = localStorage.getItem(userKey(WRONG_KEY));
-      var d = r ? JSON.parse(r) : null;
-      if (!d || typeof d !== "object") return blankWrong();
-      if (!d.q || typeof d.q !== "object") d.q = {};
-      if (!d.b || typeof d.b !== "object") d.b = {};
-      if (!d.u || typeof d.u !== "object") d.u = {};
-      if (!Array.isArray(d.rounds)) d.rounds = [];
-      return d;
-    } catch (e) { return blankWrong(); }
+    var d = recData(userKey(WRONG_KEY));
+    if (!d || typeof d !== "object") return blankWrong();
+    if (!d.q || typeof d.q !== "object") d.q = {};
+    if (!d.b || typeof d.b !== "object") d.b = {};
+    if (!d.u || typeof d.u !== "object") d.u = {};
+    if (!Array.isArray(d.rounds)) d.rounds = [];
+    if (!d.cleared || typeof d.cleared !== "object") d.cleared = {};   // 已攻克的题：合并时不会被"复活"
+    return d;
   }
   var wrong = blankWrong();
   function saveWrong() {
     if (document.body.classList.contains("auth-mode")) return;   // 登录页上不写入，避免串账号
-    try { localStorage.setItem(userKey(WRONG_KEY), JSON.stringify(wrong)); } catch (e) {}
+    setRec(userKey(WRONG_KEY), wrong);
   }
   function hashStr(s) {
     var h = 5381;
@@ -293,7 +606,7 @@
       if (e) {
         e.r = (e.r || 0) + 1;
         e.streak = (e.streak || 0) + 1;
-        if (e.streak >= 2) delete wrong.q[it.id]; // 连对两次＝已攻克
+        if (e.streak >= 2) { delete wrong.q[it.id]; wrong.cleared[it.id] = Date.now(); } // 连对两次＝已攻克（记清除标记，合并时不会复活）
       }
     } else {
       if (!e) {
@@ -311,7 +624,11 @@
     syncWrongBadge();
   }
   function wrongRemove(id) {
-    if (wrong.q[id]) { delete wrong.q[id]; saveWrong(); syncWrongBadge(); }
+    if (wrong.q[id]) {
+      delete wrong.q[id];
+      wrong.cleared[id] = Date.now();     // 手动移出也算"已处理"，合并时不会复活
+      saveWrong(); syncWrongBadge();
+    }
   }
   /* 板块薄弱度（含错题数） */
   function weakBoards() {
@@ -813,12 +1130,26 @@
     var list = filteredItems();
     var it = list[state.index]; if (!it) { $("actionbar").hidden = true; return; }
     var pages = (it.pages || []).length;
+    var p = subProgress(state.boardId);
+    var isDone = !!(p.done && p.done[it.id]);
     $("actionbar").innerHTML =
       '<button class="btn" id="prevBtn" type="button"' + (state.index === 0 && state.page === 0 ? " disabled" : "") + ">上一条</button>" +
+      '<button class="btn' + (isDone ? " btn-done" : "") + '" id="doneBtn" type="button">' + (isDone ? "已掌握 ✓" : "标记已掌握") + "</button>" +
       (state.page < pages - 1
         ? '<button class="btn btn-primary" id="nextBtn" type="button">下一页 ' + (state.page + 2) + "/" + pages + "</button>"
         : '<button class="btn btn-primary" id="nextBtn" type="button"' + (state.index >= list.length - 1 ? " disabled" : "") + ">下一条</button>");
     $("actionbar").hidden = false;
+  }
+  /* 标记/取消「已掌握」：学习进度的核心数据（只增不减，多标签页合并时取并集） */
+  function toggleDone() {
+    var list = filteredItems();
+    var it = list[state.index];
+    if (!it) return;
+    var p = subProgress(state.boardId);
+    if (p.done[it.id]) { delete p.done[it.id]; toast("已取消「已掌握」"); }
+    else { p.done[it.id] = 1; toast("已标记为掌握 · " + doneCount(state.boardId) + "/" + list.length); }
+    saveProgress();
+    renderStudy();
   }
 
   function nav(d) {
@@ -1774,6 +2105,24 @@
       if (f) importData(f);
       this.value = "";
     };
+    /* 数据落盘与多标签页同步：
+       切后台/离开页面立即强制落盘（避免丢数据）；切回前台或收到其它标签页的改动广播时做一次合并 */
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) { flushNow(); return; }
+      if (!authMode()) syncAndMerge();
+    });
+    window.addEventListener("pagehide", function () { flushNow(); });
+    window.addEventListener("beforeunload", function () { flushNow(); });
+    try {
+      if (window.BroadcastChannel) {
+        bc = new BroadcastChannel("zzx-db");
+        bc.onmessage = function (e) {
+          var d = e.data || {};
+          if (d.type === "changed" && !document.hidden) syncAndMerge();
+        };
+      }
+    } catch (e) {}
+
     /* 每次「进入」应用回到主界面（含五大板块）：
        iOS 主屏幕应用常以「恢复冻结页面」的方式打开（不重新加载页面），
        所以在恢复或长时间离开后主动回到首页，避免一进来停在别的页面 */
@@ -1782,6 +2131,7 @@
       if (document.hidden) { bind.hiddenAt = Date.now(); return; }
       if (bind.hiddenAt && Date.now() - bind.hiddenAt > 3 * 60 * 1000) { bind.hiddenAt = 0; goHome(); }
     });
+    if ($("spaceBtn")) $("spaceBtn").onclick = function () { showStorage(); };
 
     /* 登录/注册页交互 */
     var av = $("viewAuth");
@@ -1813,7 +2163,10 @@
     }
     $("resetBtn").onclick = function () {
       if (!confirm("确定清空全部学习进度？")) return;
-      progress = {}; saveProgress(); renderSidebar(); renderHome(); toast("进度已清空");
+      progress = {};
+      state.index = 0; state.page = 0;
+      delRec(userKey(STORE_KEY));            // 直接从数据库删除该账号的进度记录
+      renderSidebar(); renderHome(); toast("当前账号的学习进度已清空");
     };
     $("searchBtn").onclick = openSearch;
     $("searchClose").onclick = closeSearch;
@@ -1982,6 +2335,7 @@
       if (!t) return;
       if (t.id === "prevBtn") nav(-1);
       else if (t.id === "nextBtn") nav(1);
+      else if (t.id === "doneBtn") toggleDone();
     });
     $("viewQuiz").addEventListener("click", function (e) {
       var t = e.target.closest ? e.target.closest("button") : null;
@@ -2213,9 +2567,17 @@
   /* ---------------- 启动：先过账号，再进入主界面 ---------------- */
   function init() {
     applyTheme(); syncImgBtn(); bind();
-    var sess = readSession();
-    if (sess) { signIn(sess); return; }      // 「记住登录」：直接进入自己的进度
-    renderAuth("");
+    /* 先打开本地数据库并把旧数据搬进来，再过账号门槛 */
+    recGetAll().then(function (rows) {
+      mem = rows || {};
+      migrateLegacy();
+      askPersist();
+      var sess = readSession();
+      if (sess) { signIn(sess); return; }    // 「记住登录」：直接进入自己的进度
+      renderAuth("");
+    }).catch(function () {
+      renderAuth("");
+    });
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
