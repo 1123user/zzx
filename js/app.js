@@ -876,6 +876,7 @@
 
     h += "</div>";
     $("viewHome").innerHTML = h;
+    show("viewHome");                     // 关键：渲染首页时必须切到首页
     $("topTitle").textContent = "政治线";
     $("topSub").textContent = "五大板块 · 依据 2027 年考试大纲";
     $("progressStrip").hidden = true;
@@ -2078,7 +2079,8 @@
     $("imgBtn").onclick = function () {
       state.imgMode = state.imgMode === "on" ? "off" : "on";
       localStorage.setItem(IMG_KEY, state.imgMode); syncImgBtn();
-      if (!$("viewStudy").hidden) renderStudy(); else renderHome();
+      if (!$("viewStudy").hidden) renderStudy();
+      else if (!$("viewHome").hidden) renderHome();   // 只在首页时重绘首页，不强行切视图
       toast("配图已" + (state.imgMode === "on" ? "显示" : "隐藏"));
     };
     if ($("cacheBtn")) $("cacheBtn").onclick = function () {
@@ -2474,30 +2476,33 @@
     var a = readAccounts();
     var names = Object.keys(a.users);
     var hasLegacy = !names.length && (localStorage.getItem("zzx.progress.v1") || localStorage.getItem("zzx.wrong.v1"));
-    if (!names.length) authTab = "reg";
+    var isReg = authTab === "reg";
     var h = '<div class="auth-wrap"><div class="auth-card">' +
       '<div class="hero" style="padding:0 0 14px;border-bottom:0;margin:0">' +
-      "<h1 style=\"font-size:21px\">政治线<em>·</em>学习账号</h1>" +
-      "<p>登录后看到的即是你自己的学习进度：已掌握条目、错题库、薄弱分析都按账号分开保存。</p></div>" +
-      '<div class="auth-tabs">' +
-      '<button type="button" class="auth-tab' + (authTab === "login" ? " on" : "") + '" data-auth="login">登录</button>' +
-      '<button type="button" class="auth-tab' + (authTab === "reg" ? " on" : "") + '" data-auth="reg">注册</button>' +
-      "</div>" +
+      '<h1 style="font-size:21px">' + (isReg ? "注册新账号" : "登录") + "<em>·</em>政治线</h1>" +
+      "<p>" + (isReg
+        ? "设置用户名与密码，之后的学习进度就记在这个账号名下。"
+        : "输入用户名与密码，进入你自己的学习进度（已掌握、错题库、薄弱分析）。") +
+      "</p></div>" +
       '<div class="auth-field"><label>用户名</label><input id="authName" type="text" autocomplete="username" autocapitalize="off" placeholder="例如：kaoyan" value="' + esc(lastName()) + '"></div>' +
-      '<div class="auth-field"><label>密码</label><input id="authPw" type="password" autocomplete="' + (authTab === "reg" ? "new-password" : "current-password") + '" placeholder="至少 4 位"></div>' +
-      (authTab === "reg" ? '<div class="auth-field"><label>确认密码</label><input id="authPw2" type="password" autocomplete="new-password" placeholder="再输一次"></div>' : "") +
+      '<div class="auth-field"><label>密码</label><input id="authPw" type="password" autocomplete="' + (isReg ? "new-password" : "current-password") + '" placeholder="' + (isReg ? "至少 4 位" : "请输入密码") + '"></div>' +
+      (isReg ? '<div class="auth-field"><label>确认密码</label><input id="authPw2" type="password" autocomplete="new-password" placeholder="再输一次"></div>' : "") +
       '<label class="auth-check"><input id="authRemember" type="checkbox" checked> 记住登录状态（下次打开免输密码）</label>' +
-      '<div class="auth-actions"><button type="button" class="auth-btn primary" id="authGo">' +
-      (authTab === "reg" ? "注册并进入" : "登录") + "</button>" +
-      (hasLegacy ? '<button type="button" class="auth-btn" id="authSkip">先用本机进度</button>' : "") +
-      "</div>" +
+      '<div class="auth-actions"><button type="button" class="auth-btn primary" id="authGo">' + (isReg ? "注册" : "登录") + "</button></div>" +
       '<div class="auth-msg" id="authMsg">' + esc(msg || "") + "</div>" +
+      '<div class="auth-switch">' + (isReg
+        ? '<span>已经有账号了？</span><button type="button" class="auth-link" data-auth="login">返回登录</button>'
+        : '<span>还没有账号？</span><button type="button" class="auth-link" data-auth="reg">注册新账号</button>') +
+      "</div>" +
+      (hasLegacy ? '<div class="auth-extra"><button type="button" class="auth-btn" id="authSkip">先用本机已有进度（不注册）</button></div>' : "") +
       '<p class="auth-note">账号只保存在这台设备上，不需要服务器、不上传任何数据。密码以加盐散列保存，不存明文；换设备时可用「导出学习数据 / 导入学习数据」迁移。</p>' +
       "</div></div>";
     $("viewAuth").innerHTML = h;
     show("viewAuth");
-    $("topTitle").textContent = "登录 / 注册";
-    $("topSub").textContent = names.length ? "已有 " + names.length + " 个账号" : "第一次使用：注册一个账号，进度就归你";
+    $("topTitle").textContent = isReg ? "注册新账号" : "登录";
+    $("topSub").textContent = isReg
+      ? "设置用户名与密码即可"
+      : (names.length ? "已有 " + names.length + " 个账号，输入密码进入" : "第一次使用？点下方「注册新账号」");
     var el = $("authName");
     if (el && !lastName()) { try { el.focus(); } catch (e) {} }
   }
@@ -2514,17 +2519,26 @@
       registerAccount(name, pw).then(function (u) {
         rememberName(u);
         setSession(u, remember);
-        toast("账号已创建，学习进度将保存在「" + u + "」名下");
+        toast("账号「" + u + "」已创建，学习进度将记在它名下");
         signIn(u);
-      }).catch(function (e) { say((e && e.message) || "注册失败"); });
+      }).catch(function (e) {
+        var m = (e && e.message) || "注册失败";
+        if (/已存在/.test(m)) m += "：点下方「返回登录」直接输入密码即可";
+        say(m);
+      });
     } else {
+      if (!String(name).trim() || !pw) return say("请输入用户名与密码");
       say("正在登录…");
       loginAccount(name, pw).then(function (u) {
         rememberName(u);
         setSession(u, remember);
         toast("已登录：" + u);
         signIn(u);
-      }).catch(function (e) { say((e && e.message) || "登录失败"); });
+      }).catch(function (e) {
+        var m = (e && e.message) || "登录失败";
+        if (/不存在/.test(m)) m += "：点下方「注册新账号」创建";
+        say(m);
+      });
     }
   }
   function syncUserUI() {
@@ -2537,6 +2551,7 @@
     progress = loadProgress();
     wrong = loadWrong();
     document.body.classList.remove("auth-mode");
+    authTab = "login";                 // 下次再出现登录页时，默认就是「登录」而不是注册
     syncUserUI();
     boot();
   }
