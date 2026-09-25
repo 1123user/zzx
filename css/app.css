@@ -701,3 +701,91 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
 .user-row .u-btn{font-size:12px;color:var(--accent);padding:2px 7px;border-radius:6px;border:1px solid var(--line);background:var(--bg-elevated)}
 
 @media print{.sidebar,.topbar,.actionbar{display:none}}
+
+/* ==================================================================
+   动效体系（参考「8 种 App 交互动效」的通用规则）
+   · 磁吸：吸附时速度逐渐变快（收尾略过冲的缓动）
+   · 液态：指示条像一滴液体滑过去，中段拉伸后回落
+   · 中心聚焦：横向刻度里离视口中心最近的那条轻微放大
+   · 图片展开：从被点的那张图原位向四周扩展到全屏，关闭原路收回
+   · 手势转场：手指拖多少就跟多少（下滑关闭大图、左拖收起侧栏）
+   · 碰撞回弹：元素被移除时，下面的条目弹上来；小元素按压会回应
+   全部共用同一套时长与缓动；系统「减弱动态效果」时降级为瞬时完成。
+   ================================================================== */
+:root{
+  --mt-fast:140ms; --mt-base:240ms; --mt-slow:360ms;
+  --ease-out:cubic-bezier(.22,.61,.36,1);
+  --ease-snap:cubic-bezier(.2,.92,.28,1.06);
+  --ease-liquid:cubic-bezier(.36,1.28,.42,1);
+  --ease-focus:cubic-bezier(.25,.8,.3,1);
+}
+@media (prefers-reduced-motion:reduce){
+  :root{--mt-fast:1ms;--mt-base:1ms;--mt-slow:1ms}
+  .view{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:1ms !important;animation-iteration-count:1 !important}
+}
+
+/* 微交互：小元素按压时轻微压缩，松手回弹（同一套规则） */
+.chip,.btn,.auth-btn,.ghost-btn,.card,.side-action,.opt{
+  transition:transform var(--mt-fast) var(--ease-out),background var(--mt-fast) linear,
+             border-color var(--mt-fast) linear,color var(--mt-fast) linear,box-shadow var(--mt-fast) linear;
+}
+.chip:active,.btn:active,.auth-btn:active,.ghost-btn:active,.opt:active{transform:scale(.965)}
+.card:active{transform:scale(.985)}
+.pseg:active{transform:scaleY(.86)}
+
+/* 图片展开：遮罩淡入、工具条与说明各自轻微位移，形成层次 */
+#imgOverlay{opacity:0;transition:opacity var(--mt-base) var(--ease-out)}
+#imgOverlay.is-open{opacity:1}
+#imgOverlay .img-toolbar,#imgOverlay .img-cap{
+  transition:opacity var(--mt-base) var(--ease-out),transform var(--mt-base) var(--ease-out);
+}
+#imgOverlay:not(.is-open) .img-toolbar{opacity:0;transform:translateY(-10px)}
+#imgOverlay:not(.is-open) .img-cap{opacity:0;transform:translateY(10px)}
+#imgBig{/* 默认无过渡：拖动与缩放必须完全跟手 */}
+#imgBig.is-flip{transition:transform var(--mt-slow) var(--ease-out)}
+#imgBig.is-spring{transition:transform var(--mt-base) var(--ease-snap)}
+.img-stage.is-dismiss{cursor:grabbing}
+
+/* 选中 Tab：液态指示条（经过中间位置后再收缩） */
+.anal-tabs{position:relative}
+.tab-ink{
+  position:absolute;left:0;top:0;border-radius:999px;background:var(--accent);
+  transform-origin:0 50%;pointer-events:none;z-index:0;
+  transition:transform var(--mt-base) var(--ease-liquid);
+}
+.anal-tabs .chip{position:relative;z-index:1}
+.anal-tabs .chip.on{background:transparent;border-color:transparent;color:#fff;font-weight:600}
+.anal-tabs .chip:not(.on){background:transparent}
+
+/* 中心聚焦 + 吸附回弹（进度刻度） */
+.pseg{transform-origin:center bottom;transition:height var(--mt-fast) var(--ease-out),
+  background var(--mt-fast) linear,transform 180ms var(--ease-focus)}
+.pseg.is-focus{transform:scaleY(1.5)}
+.pseg.is-snap{animation:psegSnap 340ms var(--ease-snap)}
+@keyframes psegSnap{
+  0%{transform:scaleY(1.7) scaleX(1.3)}
+  60%{transform:scaleY(.92) scaleX(1.02)}
+  100%{transform:scaleY(1) scaleX(1)}
+}
+
+/* 碰撞推挤与回弹：条目移除后，下面的条目弹上来 */
+.wrong-item{transition:transform var(--mt-base) var(--ease-snap),opacity var(--mt-fast) linear}
+.wrong-item.is-out{opacity:0;transform:translateX(-16px) scale(.97)}
+
+/* 答题反馈：面板弹入；选中的选项回应（正确轻微放大、错误轻微抖动） */
+.quiz-ex{animation:feedbackIn 280ms var(--ease-snap)}
+@keyframes feedbackIn{from{opacity:0;transform:translateY(9px) scale(.985)}to{opacity:1;transform:none}}
+.opt.right{animation:optPop 340ms var(--ease-snap)}
+.opt.wrong{animation:optShake 320ms var(--ease-out)}
+@keyframes optPop{0%{transform:scale(1)}45%{transform:scale(1.028)}100%{transform:scale(1)}}
+@keyframes optShake{0%,100%{transform:translateX(0)}22%{transform:translateX(-4px)}62%{transform:translateX(3px)}}
+
+/* 侧栏：跟手拖动时不要过渡，松手后用回弹缓动归位 */
+@media (max-width:900px){
+  .sidebar{transform:translateX(-100%)}
+  .sidebar.is-drag{transition:none}
+  .sidebar.is-spring{transition:transform var(--mt-base) var(--ease-snap)}
+  /* 纵向滚动仍交给浏览器，横向手势留给"跟手收起" */
+  .sidebar{touch-action:pan-y}
+}

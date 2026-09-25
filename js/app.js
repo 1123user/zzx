@@ -650,6 +650,40 @@
     var d = getBoard(id); if (!d) return [];
     return (d.items || []).filter(function (it) { return it.anniv; });
   }
+
+  /* ---------------- 动效基础（全站共用同一套运动规则） ----------------
+     · 系统开启「减弱动态效果」时，所有动效瞬时完成（不是关掉功能）
+     · 吸附滚动：中段加速、收尾快速贴住目标（磁吸的手感来自"速度逐渐变快"）
+     · 弹一下：给元素临时加一个动画类，用于吸附/回弹这类一次性反馈 */
+  var reduceMotion = false;
+  try {
+    var mq = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
+    reduceMotion = !!(mq && mq.matches);
+    if (mq && mq.addEventListener) mq.addEventListener("change", function (e) { reduceMotion = !!e.matches; });
+  } catch (e) {}
+  function motionOK() { return !reduceMotion; }
+  function nowMs() { return (window.performance && performance.now) ? performance.now() : Date.now(); }
+  var snapScrollToken = 0;
+  function snapScrollTo(el, to, ms) {
+    if (!el) return;
+    var from = el.scrollLeft, d = to - from;
+    if (!motionOK() || Math.abs(d) < 2) { el.scrollLeft = to; return; }
+    var tok = ++snapScrollToken, t0 = nowMs();
+    (function step(now) {
+      if (tok !== snapScrollToken) return;
+      var p = Math.min(1, (now - t0) / (ms || 330));
+      var e = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;   // 中段加速、收尾更快
+      el.scrollLeft = from + d * e;
+      if (p < 1) requestAnimationFrame(step);
+    })(t0);
+  }
+  function popClass(el, cls, ms) {
+    if (!el || !motionOK()) return;
+    el.classList.remove(cls);
+    void el.offsetWidth;                  // 重启动画
+    el.classList.add(cls);
+    setTimeout(function () { el.classList.remove(cls); }, ms || 380);
+  }
   var dom = {};
 
   function loadProgress() {
@@ -792,6 +826,48 @@
       wrong.cleared[id] = Date.now();     // 手动移出也算"已处理"，合并时不会复活
       saveWrong(); syncWrongBadge();
     }
+  }
+  /* 移出错题库：被移出的条目先轻微缩出，剩下的条目从原位置弹上来
+     （碰撞推挤与回弹——元素会对彼此的运动做出回应） */
+  function removeWrongAnimated(id) {
+    var view = $("viewAnalysis");
+    if (!view) { wrongRemove(id); return; }
+    var btn = view.querySelector('[data-wdel="' + id + '"]');
+    var target = btn && btn.closest ? btn.closest(".wrong-item") : null;
+    var items = view.querySelectorAll(".wrong-item");
+    var rects = [], idx = -1;
+    for (var i = 0; i < items.length; i++) {
+      rects.push(items[i].getBoundingClientRect());
+      if (items[i] === target) idx = i;
+    }
+    var animated = !!(target && motionOK());
+    var delay = animated ? 170 : 0;
+    if (animated) target.classList.add("is-out");
+    wrongRemove(id);
+    function rerender() {
+      renderAnalysis("wrong");
+      toast("已移出错题库");
+      if (!animated) return;
+      /* 等重绘完成后再做 FLIP：剩下的条目从旧位置滑到新位置 */
+      setTimeout(function () {
+        var after = $("viewAnalysis").querySelectorAll(".wrong-item");
+        for (var j = 0; j < after.length; j++) {
+          var oldR = rects[j + (idx >= 0 ? 1 : 0)];
+          if (!oldR) continue;
+          var d = oldR.top - after[j].getBoundingClientRect().top;
+          if (Math.abs(d) < 2) continue;
+          after[j].style.transition = "none";
+          after[j].style.transform = "translateY(" + d + "px)";
+        }
+        requestAnimationFrame(function () {
+          for (var k = 0; k < after.length; k++) {
+            after[k].style.transition = "";
+            after[k].style.transform = "";
+          }
+        });
+      }, 0);
+    }
+    setTimeout(rerender, delay);
   }
   /* 板块薄弱度（含错题数） */
   function weakBoards() {
@@ -944,11 +1020,27 @@
       setTimeout(function () { t.hidden = true; }, 260);
     }, ms || 1700);
   }
-  function openSidebar() { dom.sidebar.classList.add("open"); dom.scrim.hidden = false; requestAnimationFrame(function () { dom.scrim.classList.add("show"); }); }
+  function openSidebar() {
+    var sb = dom.sidebar;
+    if (!sb) return;
+    sb.style.transform = "";                       // 清掉手势拖动留下的位置
+    sb.classList.remove("is-drag");
+    sb.classList.add("is-spring", "open");
+    setTimeout(function () { sb.classList.remove("is-spring"); }, 280);
+    dom.scrim.hidden = false;
+    dom.scrim.style.opacity = "";
+    requestAnimationFrame(function () { dom.scrim.classList.add("show"); });
+  }
   function closeSidebar() {
-    if (!dom.sidebar) return;
-    dom.sidebar.classList.remove("open");
+    var sb = dom.sidebar;
+    if (!sb) return;
+    sb.classList.remove("is-drag");
+    sb.classList.add("is-spring");
+    sb.style.transform = "";
+    sb.classList.remove("open");
     dom.scrim.classList.remove("show");
+    dom.scrim.style.opacity = "";
+    setTimeout(function () { sb.classList.remove("is-spring"); }, 280);
     setTimeout(function () { dom.scrim.hidden = true; }, 260);
   }
 
@@ -1154,8 +1246,30 @@
     var target = cur.offsetLeft - (track.clientWidth - cur.offsetWidth) / 2;
     target = Math.min(max, Math.max(0, Math.round(target)));
     if (!navSmooth || Math.abs(target - track.scrollLeft) < 8) { track.scrollLeft = target; return; }
-    try { track.scrollTo({ left: target, behavior: "smooth" }); }
-    catch (e) { track.scrollLeft = target; }
+    snapScrollTo(track, target, 340);   // 磁吸：吸附速度逐渐变快
+  }
+  /* 中心聚焦：横向刻度里离视口中心最近的那一条轻微放大，
+     让"当前翻到哪儿"在细刻度上也看得出来（内容型 App 的聚焦提示） */
+  var psegFocus = { cur: null, queued: false };
+  function focusPsegNow() {
+    psegFocus.queued = false;
+    var track = pstripTrack();
+    if (!track || !track.isConnected) return;
+    var r = track.getBoundingClientRect();
+    var seg = null;
+    if (r.bottom > 0 && r.top < window.innerHeight) {
+      var el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (el && el.classList && el.classList.contains("pseg")) seg = el;
+    }
+    if (seg === psegFocus.cur) return;
+    if (psegFocus.cur) psegFocus.cur.classList.remove("is-focus");
+    if (seg && !seg.classList.contains("is-current")) seg.classList.add("is-focus");
+    psegFocus.cur = seg;
+  }
+  function focusPsegSoon() {
+    if (psegFocus.queued) return;
+    psegFocus.queued = true;
+    requestAnimationFrame(focusPsegNow);
   }
   function renderPstrip(list) {
     var strip = $("progressStrip");
@@ -1284,6 +1398,7 @@
     $("progressText").textContent = (state.index + 1) + " / " + list.length +
       (p.done[it.id] ? " · 本条目已掌握" : "");
     renderPstrip(list);
+    focusPsegSoon();          // 刻度条的中心聚焦（离中心最近的那条轻微放大）
     markShots();
     preloadAround();
     renderActionbar();
@@ -1792,6 +1907,32 @@
 
   /* ---------------- 错题与薄弱分析 ---------------- */
   var analTab = "weak";
+  /* 选中 Tab 的液态指示条：从上一个位置滑到当前项（中段拉伸、经过中间位置后收缩回落）。
+     用 scaleX 表达宽度，才能做出"液体被拉长再收回"的观感 */
+  var tabInk = { x: null, w: 0 };
+  var INK_BASE = 100;
+  function moveTabInk() {
+    var box = document.querySelector("#viewAnalysis .anal-tabs");
+    if (!box) return;
+    var ink = box.querySelector(".tab-ink");
+    var on = box.querySelector(".chip.on");
+    if (!ink || !on) return;
+    var x = on.offsetLeft, w = on.offsetWidth, h = on.offsetHeight;
+    ink.style.width = INK_BASE + "px";
+    ink.style.height = h + "px";
+    function place(px, pw, animate) {
+      ink.style.transition = animate ? "" : "none";
+      ink.style.transform = "translateX(" + px + "px) scaleX(" + (pw / INK_BASE) + ")";
+    }
+    if (motionOK() && tabInk.x != null && Math.abs(tabInk.x - x) > 1) {
+      place(tabInk.x, tabInk.w || w, false);       // 先摆回上次位置（不带动画）
+      void ink.offsetWidth;
+      requestAnimationFrame(function () { place(x, w, true); });   // 再滑到当前项
+    } else {
+      place(x, w, true);
+    }
+    tabInk.x = x; tabInk.w = w;
+  }
   function statCell(v, label) {
     return '<div class="stat-cell"><b>' + v + "</b><span>" + label + "</span></div>";
   }
@@ -1908,13 +2049,14 @@
         " 道。每答一题自动更新板块与单元的正确率；同一道错题连对两次即自动移出错题库。</p></div>";
       h += '<div class="axis-switch anal-tabs">' + tabs.map(function (a) {
         return '<button type="button" class="chip' + (analTab === a[0] ? " on" : "") + '" data-anal="' + a[0] + '">' + a[1] + "</button>";
-      }).join("") + "</div>";
+      }).join("") + '<span class="tab-ink" aria-hidden="true"></span></div>';
       if (analTab === "now") h += renderNowTab();
       else if (analTab === "wrong") h += renderWrongTab();
       else h += renderWeakTab();
       h += "</div>";
       $("viewAnalysis").innerHTML = h;
       show("viewAnalysis");
+      requestAnimationFrame(function () { moveTabInk(); });   // 液态指示条滑到当前项
       $("topTitle").textContent = "错题与薄弱分析";
       $("topSub").textContent = "累计 " + tq + " 题 · 正确率 " + acc + "% · 错题 " + wn + " 道";
       $("progressStrip").hidden = true;
@@ -2073,7 +2215,11 @@
   }
 
   /* ---------------- 图片查看器（可缩放） ---------------- */
-  var viewer = { open: false, scale: 1, tx: 0, ty: 0, fitW: 1, fitH: 1, W0: 0, H0: 0, min: 0.2, max: 6, dragging: false, px: 0, py: 0 };
+  var viewer = {
+    open: false, scale: 1, tx: 0, ty: 0, fitW: 1, fitH: 1, W0: 0, H0: 0, min: 0.2, max: 6,
+    dragging: false, px: 0, py: 0,
+    src: "", fromEl: null                       // 记录来源缩略图，用于「图片展开/收回」的原位动画
+  };
 
   function viewStage() { return $("imgStage"); }
   function viewImg() { return $("imgBig"); }
@@ -2111,10 +2257,60 @@
 
   function viewZoomBy(factor, cx, cy) { viewZoomTo(viewer.scale * factor, cx, cy); }
 
-  function openViewer(src, cap) {
+  /* 当前图片在屏幕上的最终位置（stage 内的 tx/ty + 缩放后的尺寸） */
+  function viewFinalRect() {
+    var st = viewStage();
+    if (!st) return null;
+    var r = st.getBoundingClientRect();
+    var w = viewer.W0 * viewer.scale, h = viewer.H0 * viewer.scale;
+    return { left: r.left + viewer.tx, top: r.top + viewer.ty, width: w, height: h };
+  }
+  /* 把 transform 写成 "translate(x,y) scale(s)"：与 viewApply 的取值方式保持一致 */
+  function tfOf(tx, ty, s) { return "translate(" + tx + "px," + ty + "px) scale(" + s + ")"; }
+  /* 图片展开/收起的公共动画。
+     用 Web Animations API 而不是 CSS transition：
+     这两次 transform 变更常发生在同一帧里，CSS transition 会被浏览器并帧吞掉（表现为"瞬间到位"） */
+  function flipAnim(img, from, to, ms, onEnd) {
+    if (!motionOK()) { if (onEnd) onEnd(); return; }
+    try {
+      var a = img.animate([{ transform: from }, { transform: to }],
+        { duration: ms || 340, easing: "cubic-bezier(.22,.61,.36,1)", fill: "none" });
+      if (onEnd) a.onfinish = onEnd;
+    } catch (e) { if (onEnd) onEnd(); }
+  }
+  /* 缩略图尺寸 → 全屏（或反向）的起点/终点：以中心对齐，让图从原位向四周扩展 */
+  function flipEnds(rect, scale) {
+    var fin = viewFinalRect();
+    if (!rect || !rect.width || !fin || !fin.width) return null;
+    var st = viewStage(), sr = st.getBoundingClientRect();
+    var k = Math.max(0.02, rect.width / fin.width);
+    var s = scale * k;
+    var cx = rect.left + rect.width / 2 - sr.left, cy = rect.top + rect.height / 2 - sr.top;
+    return { tf: tfOf(cx - (fin.width * k) / 2, cy - (fin.height * k) / 2, s) };
+  }
+  /* 图片展开：从被点的那张缩略图的位置与尺寸出发，原位向四周扩展到全屏（共享元素过渡） */
+  function flipFromRect(img, rect) {
+    var end = flipEnds(rect, viewer.scale);
+    if (!end) return;
+    flipAnim(img, end.tf, tfOf(viewer.tx, viewer.ty, viewer.scale), 360);
+  }
+  /* 关闭：原路收回一张图的位置（还在页面上就飞回去，否则淡出） */
+  function flipToRect(img, rect) {
+    var end = flipEnds(rect, viewer.scale);
+    if (!end) return false;
+    flipAnim(img, tfOf(viewer.tx, viewer.ty, viewer.scale), end.tf, 320);
+    return true;
+  }
+
+  function openViewer(src, cap, fromEl) {
     var img = viewImg();
     viewer.open = true;
     viewer.scale = 1; viewer.tx = 0; viewer.ty = 0;
+    viewer.src = src;
+    viewer.fromEl = fromEl || null;
+    img.classList.remove("is-flip", "is-spring");
+    img.style.transform = "";
+    img.style.transition = "";
     $("imgCap").textContent = cap || "";
     $("imgOverlay").hidden = false;
     img.alt = cap || "";
@@ -2123,15 +2319,33 @@
       viewer.W0 = img.naturalWidth || 1;
       viewer.H0 = img.naturalHeight || 1;
       viewFitWidth();
+      var r = viewer.fromEl && viewer.fromEl.getBoundingClientRect ? viewer.fromEl.getBoundingClientRect() : null;
+      flipFromRect(img, r);                      // 从缩略图原位扩展出来
     }
     if (img.complete && img.naturalWidth) ready();
     else img.onload = ready;
+    requestAnimationFrame(function () { $("imgOverlay").classList.add("is-open"); });
   }
 
   function closeViewer() {
+    var img = viewImg(), ov = $("imgOverlay");
+    if (!viewer.open) { ov.hidden = true; return; }
     viewer.open = false;
-    $("imgOverlay").hidden = true;
-    viewImg().src = "";
+    var from = viewer.fromEl;
+    var rect = (from && from.isConnected && from.getBoundingClientRect) ? from.getBoundingClientRect() : null;
+    ov.style.opacity = "";
+    ov.classList.remove("is-open");
+    if (!flipToRect(img, rect)) {
+      setTimeout(function () { ov.hidden = true; img.src = ""; }, 200);
+      return;
+    }
+    setTimeout(function () {
+      ov.hidden = true;
+      img.classList.remove("is-flip");
+      img.style.transform = "";
+      img.src = "";
+      viewer.scale = 1; viewer.tx = 0; viewer.ty = 0;
+    }, 380);
   }
 
   function viewBind() {
@@ -2176,14 +2390,30 @@
     });
     window.addEventListener("pointerup", function () { viewer.dragging = false; st.classList.remove("grabbing"); });
 
-    // 移动端：单指拖动 + 双指捏合缩放
-    var touch = { mode: null, lx: 0, ly: 0, pinch: null };
+    // 移动端：单指拖动 + 双指捏合缩放 + 下滑关闭（手势转场：手指拖多少就跟多少）
+    var touch = { mode: null, lx: 0, ly: 0, pinch: null, dismiss: null };
+    function dismissReset(spring) {
+      var img = viewImg();
+      $("imgOverlay").style.opacity = "";
+      st.classList.remove("is-dismiss");
+      if (!touch.dismiss) return;
+      if (spring) {
+        img.classList.add("is-spring");
+        viewApply();                                  // 回到原位（回弹缓动）
+        setTimeout(function () { img.classList.remove("is-spring"); }, 280);
+      }
+      touch.dismiss = null;
+    }
     st.addEventListener("touchstart", function (e) {
+      touch.dismiss = null;
       if (e.touches.length === 1) {
         touch.mode = "drag";
         touch.lx = e.touches[0].clientX; touch.ly = e.touches[0].clientY;
+        touch.sx = e.touches[0].clientX; touch.sy = e.touches[0].clientY;
+        touch.t0 = Date.now();
       } else if (e.touches.length === 2) {
         touch.mode = "pinch";
+        touch.dismiss = null;
         touch.pinch = {
           d: Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY),
           s: viewer.scale
@@ -2192,9 +2422,30 @@
     }, { passive: true });
     st.addEventListener("touchmove", function (e) {
       if (touch.mode === "drag" && e.touches.length === 1) {
-        viewer.tx += e.touches[0].clientX - touch.lx;
-        viewer.ty += e.touches[0].clientY - touch.ly;
-        touch.lx = e.touches[0].clientX; touch.ly = e.touches[0].clientY;
+        var x = e.touches[0].clientX, y = e.touches[0].clientY;
+        var dx = x - touch.lx, dy = y - touch.ly;
+        /* 未放大时的下滑 = 关闭手势：以手指位移为主，只有明显偏竖直才接管，避免影响平时平移 */
+        if (!touch.dismiss && viewer.scale <= viewer.fitW * 1.06) {
+          var ndx = Math.abs(x - touch.sx), ndy = y - touch.sy;
+          if (ndy > 10 && ndy > ndx * 1.25) {
+            touch.dismiss = { y0: touch.sy, last: touch.sy, lastT: Date.now(), v: 0 };
+            st.classList.add("is-dismiss");
+          }
+        }
+        if (touch.dismiss) {
+          var total = Math.max(0, y - touch.dismiss.y0);
+          var dt = Math.max(1, Date.now() - touch.dismiss.lastT);
+          touch.dismiss.v = (y - touch.dismiss.last) / dt;          // px/ms
+          touch.dismiss.last = y; touch.dismiss.lastT = Date.now();
+          var img = viewImg();
+          img.classList.remove("is-spring");
+          img.style.transform = "translate(" + viewer.tx + "px," + (viewer.ty + total) + "px) scale(" + viewer.scale + ")";
+          $("imgOverlay").style.opacity = String(Math.max(0.12, 1 - total / 460));
+          e.preventDefault();
+          return;
+        }
+        viewer.tx += dx; viewer.ty += dy;
+        touch.lx = x; touch.ly = y;
         viewApply();
       } else if (touch.mode === "pinch" && e.touches.length === 2) {
         e.preventDefault();
@@ -2206,6 +2457,15 @@
       }
     }, { passive: false });
     st.addEventListener("touchend", function (e) {
+      if (touch.dismiss) {
+        var total = Math.max(0, touch.dismiss.last - touch.dismiss.y0);
+        var fast = touch.dismiss.v > 0.45;
+        /* 拖得够远、或又快又拉得动，才关闭；轻轻一划就回弹，避免误关 */
+        if (total > 96 || (fast && total > 72)) { dismissReset(false); closeViewer(); }
+        else dismissReset(true);
+        if (e.touches.length === 0) touch.mode = null;
+        return;
+      }
       if (e.touches.length === 0) touch.mode = null;
       else if (e.touches.length === 1) {
         touch.mode = "drag";
@@ -2215,6 +2475,61 @@
 
     // 窗口尺寸变化时重新适应
     window.addEventListener("resize", function () { if (viewer.open) viewFitWidth(); });
+  }
+
+  /* 手势转场：侧栏已打开时，向左横拖跟随手指收起、右拖回来。
+     只在明显偏水平（|dx| > |dy|·1.4）时才接管，纵向滚动照旧；
+     不做"从左边缘拖出"——iOS 那里是系统返回手势的地盘，会互相打架 */
+  function bindDrawerDrag() {
+    var sb = dom.sidebar;
+    if (!sb) return;
+    var g = null;
+    function width() { return sb.offsetWidth || sb.getBoundingClientRect().width || 300; }
+    sb.addEventListener("touchstart", function (e) {
+      if (e.touches.length !== 1 || !sb.classList.contains("open")) { g = null; return; }
+      g = { x0: e.touches[0].clientX, y0: e.touches[0].clientY, x: e.touches[0].clientX,
+            w: width(), pos: 0, engaged: false, lastT: Date.now(), v: 0 };
+    }, { passive: true });
+    sb.addEventListener("touchmove", function (e) {
+      if (!g || e.touches.length !== 1) return;
+      var x = e.touches[0].clientX, y = e.touches[0].clientY;
+      var dx = x - g.x0, dy = y - g.y0;
+      if (!g.engaged) {
+        if (Math.abs(dx) < 9) return;
+        if (Math.abs(dx) < Math.abs(dy) * 1.4) { g = null; return; }      // 交给纵向滚动
+        g.engaged = true;
+        sb.classList.remove("is-spring");
+        sb.classList.add("is-drag");
+      }
+      g.pos = Math.min(0, Math.max(-g.w, dx));                            // 手指拖多少就跟多少
+      sb.style.transform = "translateX(" + g.pos + "px)";
+      var dt = Math.max(1, Date.now() - g.lastT);
+      g.v = (x - g.x) / dt;
+      g.x = x; g.lastT = Date.now();
+      dom.scrim.style.opacity = String(Math.max(0, 1 + g.pos / g.w));
+      e.preventDefault();
+    }, { passive: false });
+    function finish() {
+      if (!g) return;
+      var gg = g; g = null;
+      if (!gg.engaged) return;
+      sb.classList.remove("is-drag");
+      var closing = gg.pos <= -gg.w * 0.35 || gg.v <= -0.35;
+      sb.classList.add("is-spring");
+      if (closing) {
+        sb.classList.remove("open");
+        dom.scrim.classList.remove("show");
+        sb.style.transform = "";
+        dom.scrim.style.opacity = "";
+        setTimeout(function () { sb.classList.remove("is-spring"); dom.scrim.hidden = true; }, 280);
+      } else {
+        sb.style.transform = "";
+        dom.scrim.style.opacity = "";
+        setTimeout(function () { sb.classList.remove("is-spring"); }, 280);
+      }
+    }
+    sb.addEventListener("touchend", finish);
+    sb.addEventListener("touchcancel", finish);
   }
 
   /* ---------------- 事件绑定 ---------------- */
@@ -2347,6 +2662,16 @@
     $("essayBtn").onclick = function () { renderEssay(); closeSidebar(); };
     $("analysisBtn").onclick = function () { renderAnalysis(wrongCount() ? "weak" : "now"); };
     viewBind();
+    /* 动效绑定：刻度条滚动时做中心聚焦；窗口尺寸变化时重排指示条 */
+    pstripTrack().addEventListener("scroll", focusPsegSoon, { passive: true });
+    window.addEventListener("resize", function () {
+      focusPsegSoon();
+      if (!$("viewAnalysis") || $("viewAnalysis").hidden) return;
+      tabInk.x = null;
+      moveTabInk();
+    });
+    window.addEventListener("orientationchange", focusPsegSoon);
+    bindDrawerDrag();
 
     // 图片加载失败兜底：隐藏破图、保留说明文字，避免页面出现异常图标
     document.addEventListener("error", function (e) {
@@ -2390,7 +2715,11 @@
       var gt = up("[data-goto]");
       if (gt) {
         var gi = parseInt(gt.getAttribute("data-goto"), 10);
-        if (gi >= 0) { state.index = gi; state.page = 0; navSmooth = false; renderStudy(); }
+        if (gi >= 0) {
+          state.index = gi; state.page = 0; navSmooth = false; renderStudy();
+          var cur = pstripTrack().querySelector(".pseg.is-current");
+          popClass(cur, "is-snap", 380);          // 点刻度：给一个吸附回弹反馈
+        }
         return;
       }
       var tg = up("[data-tag]");
@@ -2428,12 +2757,7 @@
         return;
       }
       var wd = up("[data-wdel]");
-      if (wd) {
-        wrongRemove(wd.getAttribute("data-wdel"));
-        renderAnalysis("wrong");
-        toast("已移出错题库");
-        return;
-      }
+      if (wd) { removeWrongAnimated(wd.getAttribute("data-wdel")); return; }
       var op = up("[data-opt]");
       if (op) { answerQuiz(parseInt(op.getAttribute("data-opt"), 10)); return; }
       var pg = up("[data-page]");
@@ -2490,7 +2814,7 @@
           }
           return;
         }
-        openViewer(img.getAttribute("data-full"), img.getAttribute("data-cap") || "");
+        openViewer(img.getAttribute("data-full"), img.getAttribute("data-cap") || "", img);
         return;
       }
     });
