@@ -45,6 +45,27 @@ button{cursor:pointer;border:0;background:none;font:inherit;color:inherit}
 .sidebar{width:274px;flex:0 0 274px;background:var(--bg-elevated);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:16px 14px 10px;overflow-y:auto;z-index:40}
 .sk-card{height:76px;border-radius:var(--r);border:1px solid var(--line);margin:0 0 10px;background:linear-gradient(100deg,var(--bg-sunken) 30%,var(--bg-hover) 50%,var(--bg-sunken) 70%);background-size:220% 100%;animation:skpulse 1.2s linear infinite}
 @keyframes skpulse{from{background-position:130% 0}to{background-position:-30% 0}}
+/* 登录/注册页与账号入口（内联，首屏秒出） */
+body.auth-mode .sidebar{display:none}
+body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip,body.auth-mode #actionbar{display:none !important}
+.auth-wrap{max-width:430px;margin:0 auto;padding:26px 18px 44px}
+.auth-card{background:var(--bg-elevated);border:1px solid var(--line);border-radius:var(--r);padding:20px 18px}
+.auth-tabs{display:flex;gap:6px;margin:0 0 16px}
+.auth-tab{flex:1;padding:9px;border-radius:var(--r-sm);background:var(--bg-sunken);font-size:13.5px;color:var(--fg-2);border:1px solid var(--line)}
+.auth-tab.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.auth-field{margin:0 0 12px}
+.auth-field label{display:block;font-size:12px;color:var(--fg-3);margin:0 0 5px}
+.auth-field input{width:100%;padding:11px 12px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--bg-sunken);font-size:15px;color:var(--fg)}
+.auth-field input:focus{outline:none;border-color:var(--accent)}
+.auth-actions{display:flex;gap:8px;margin-top:16px}
+.auth-btn{flex:1;padding:12px;border-radius:var(--r-sm);background:var(--bg-sunken);border:1px solid var(--line);font-size:14px;color:var(--fg)}
+.auth-btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.auth-msg{min-height:18px;font-size:12.5px;color:var(--accent);margin:8px 0 0}
+.auth-note{font-size:12px;color:var(--fg-3);line-height:1.75;margin:12px 0 0}
+.auth-check{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fg-2);margin:10px 0 0}
+.user-row{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--r-sm);background:var(--bg-sunken);font-size:12.5px}
+.user-row .u-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.user-row .u-btn{font-size:12px;color:var(--accent);padding:2px 7px;border-radius:6px;border:1px solid var(--line);background:var(--bg-elevated)}
 @media (max-width:900px){
   .sidebar{position:fixed;inset:0 auto 0 0;width:100%;flex-basis:100%;transform:translateX(-101%);box-shadow:none}
   .wrap{padding:14px 14px 40px}
@@ -84,6 +105,12 @@ button{cursor:pointer;border:0;background:none;font:inherit;color:inherit}
       <span>错题与薄弱分析</span><i id="wrongBadge">暂无错题</i>
     </button>
 
+    <div class="user-row" id="userRow">
+      <span class="u-name" id="userName">未登录</span>
+      <button class="u-btn" id="switchUserBtn" type="button">切换</button>
+      <button class="u-btn" id="logoutBtn" type="button">退出</button>
+    </div>
+
     <div class="sidebar-block">
       <div class="sidebar-label">板块</div>
       <nav class="subject-nav" id="subjectNav" aria-label="板块"></nav>
@@ -110,6 +137,9 @@ button{cursor:pointer;border:0;background:none;font:inherit;color:inherit}
       <button class="ghost-btn" id="imgBtn" type="button">图片：显示</button>
       <button class="ghost-btn" id="resetBtn" type="button">清空学习进度</button>
       <button class="ghost-btn" id="packBtn" type="button">下载全部配图（离线秒开）</button>
+      <button class="ghost-btn" id="exportBtn" type="button">导出学习数据（备份）</button>
+      <button class="ghost-btn" id="importBtn" type="button">导入学习数据（恢复）</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
       <button class="ghost-btn" id="cacheBtn" type="button">重置离线缓存</button>
     </div>
   </aside>
@@ -152,6 +182,7 @@ button{cursor:pointer;border:0;background:none;font:inherit;color:inherit}
     <section class="view" id="viewCase" hidden></section>
     <section class="view" id="viewEssay" hidden></section>
     <section class="view" id="viewAnalysis" hidden></section>
+    <section class="view" id="viewAuth" hidden></section>
     <div class="actionbar" id="actionbar" hidden></div>
   </main>
 </div>

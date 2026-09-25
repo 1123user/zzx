@@ -41,9 +41,116 @@
 
   var state = {
     boardId: null, unitId: null, kind: "", index: 0, page: 0, done: {},
-    imgMode: localStorage.getItem(IMG_KEY) || "on"
+    imgMode: localStorage.getItem(IMG_KEY) || "on",
+    user: null                       // 当前登录账号；null = 本机身份（无账号）
   };
-  var progress = loadProgress();
+  /* ---------------- 账号（本地账号：数据只存本机，登录状态自动记住） ----------------
+     存储：
+       zzx.accounts.v1 = { users: { 用户名: { salt, iter, hash, at } } }   密码用 PBKDF2-SHA256 加盐散列，不存明文
+       zzx.session.v1  = { user, at }                                     「记住登录」的会话
+     每个账号一份独立数据：进度/错题库的键都会加上 ::用户名 后缀 */
+  var ACC_KEY = "zzx.accounts.v1";
+  var SESS_KEY = "zzx.session.v1";
+  var LAST_KEY = "zzx.lastUser";
+  var PBKDF2_ITER = 150000;
+
+  function readAccounts() {
+    try {
+      var d = JSON.parse(localStorage.getItem(ACC_KEY) || "null");
+      if (d && d.users && typeof d.users === "object") return d;
+    } catch (e) {}
+    return { users: {} };
+  }
+  function writeAccounts(a) { try { localStorage.setItem(ACC_KEY, JSON.stringify(a)); } catch (e) {} }
+  function b64encode(buf) {
+    var b = new Uint8Array(buf), s = "";
+    for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s);
+  }
+  function b64decode(str) {
+    var s = atob(str || ""), b = new Uint8Array(s.length);
+    for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+    return b;
+  }
+  /* 密码散列：优先 WebCrypto PBKDF2（HTTPS/localhost 可用），否则退化为加盐散列（仅本机校验） */
+  function hashPassword(pw, saltB64, iter) {
+    var wc = window.crypto;
+    if (wc && wc.subtle && wc.subtle.importKey && window.TextEncoder) {
+      var enc = new TextEncoder();
+      return wc.subtle.importKey("raw", enc.encode(String(pw)), "PBKDF2", false, ["deriveBits"])
+        .then(function (k) {
+          return wc.subtle.deriveBits({ name: "PBKDF2", salt: b64decode(saltB64), iterations: iter || PBKDF2_ITER, hash: "SHA-256" }, k, 256);
+        })
+        .then(function (bits) { return "p2" + b64encode(bits); })
+        .catch(function () { return "h" + hashStr(saltB64 + "|" + pw + "|" + iter); });
+    }
+    return Promise.resolve("h" + hashStr(saltB64 + "|" + pw + "|" + iter));
+  }
+  function newSalt() {
+    var a = new Uint8Array(16);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(a);
+    else for (var i = 0; i < 16; i++) a[i] = Math.floor(Math.random() * 256);
+    return b64encode(a);
+  }
+  function registerAccount(name, pw) {
+    name = String(name || "").trim();
+    var a = readAccounts();
+    if (!name) return Promise.reject(new Error("请输入用户名"));
+    if (name.length > 20) return Promise.reject(new Error("用户名最多 20 个字"));
+    if (a.users[name]) return Promise.reject(new Error("该用户名已存在，请直接登录"));
+    if (String(pw || "").length < 4) return Promise.reject(new Error("密码至少 4 位"));
+    var salt = newSalt();
+    return hashPassword(pw, salt, PBKDF2_ITER).then(function (hash) {
+      a.users[name] = { salt: salt, iter: PBKDF2_ITER, hash: hash, at: Date.now() };
+      writeAccounts(a);
+      adoptLegacyData(name);
+      return name;
+    });
+  }
+  function loginAccount(name, pw) {
+    name = String(name || "").trim();
+    var u = readAccounts().users[name];
+    if (!u) return Promise.reject(new Error("用户名不存在，请先注册"));
+    return hashPassword(pw, u.salt, u.iter || PBKDF2_ITER).then(function (h) {
+      if (h !== u.hash) throw new Error("密码不正确");
+      return name;
+    });
+  }
+  function setSession(name, remember) {
+    var rec = JSON.stringify({ user: name, at: Date.now() });
+    try {
+      if (remember) { localStorage.setItem(SESS_KEY, rec); sessionStorage.removeItem(SESS_KEY); }
+      else { sessionStorage.setItem(SESS_KEY, rec); localStorage.removeItem(SESS_KEY); }
+    } catch (e) {}
+  }
+  function readSession() {
+    var raw = null;
+    try { raw = localStorage.getItem(SESS_KEY) || sessionStorage.getItem(SESS_KEY); } catch (e) {}
+    if (!raw) return null;
+    try {
+      var d = JSON.parse(raw);
+      return (d && d.user && readAccounts().users[d.user]) ? d.user : null;
+    } catch (e) { return null; }
+  }
+  function clearSession() {
+    try { localStorage.removeItem(SESS_KEY); sessionStorage.removeItem(SESS_KEY); } catch (e) {}
+  }
+  function lastName() { try { return localStorage.getItem(LAST_KEY) || ""; } catch (e) { return ""; } }
+  function rememberName(u) { try { localStorage.setItem(LAST_KEY, u); } catch (e) {} }
+  /* 按账号隔离数据键；未登录（本机身份）时沿用旧键，历史数据不丢 */
+  function userKey(base) { return state.user ? base + "::" + state.user : base; }
+  /* 首个注册的账号承接升级前的历史数据 */
+  function adoptLegacyData(name) {
+    try {
+      if (Object.keys(readAccounts().users).length !== 1) return;
+      ["zzx.progress.v1", "zzx.wrong.v1"].forEach(function (k) {
+        var v = localStorage.getItem(k);
+        if (v && !localStorage.getItem(k + "::" + name)) localStorage.setItem(k + "::" + name, v);
+      });
+    } catch (e) {}
+  }
+
+  var progress = {};
   var searchHits = [];
   var searchKind = "";
   var quiz = { list: [], i: 0, right: 0, answered: false, seed: 0, picked: [], filter: "all", label: "", wrongIds: [] };
@@ -70,10 +177,43 @@
   var dom = {};
 
   function loadProgress() {
-    try { var r = localStorage.getItem(STORE_KEY); return r ? JSON.parse(r) : {}; }
+    try { var r = localStorage.getItem(userKey(STORE_KEY)); return r ? JSON.parse(r) : {}; }
     catch (e) { return {}; }
   }
-  function saveProgress() { try { localStorage.setItem(STORE_KEY, JSON.stringify(progress)); } catch (e) {} }
+  function saveProgress() {
+    if (document.body.classList.contains("auth-mode")) return;   // 登录页上不写入，避免串账号
+    try { localStorage.setItem(userKey(STORE_KEY), JSON.stringify(progress)); } catch (e) {}
+  }
+  /* 导出/导入：账号数据可在设备之间搬运，也是备份手段 */
+  function exportData() {
+    try {
+      var payload = { app: "zzx", v: 1, user: state.user || "本机", at: Date.now(), progress: progress, wrong: wrong };
+      var blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "政治线-学习数据-" + (state.user || "本机") + ".json";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      toast("已导出学习数据，可用于备份或换机恢复");
+    } catch (e) { toast("导出失败，请更换浏览器重试"); }
+  }
+  function importData(file) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      try {
+        var d = JSON.parse(String(fr.result || ""));
+        if (!d || typeof d !== "object" || (!d.progress && !d.wrong)) throw new Error("bad");
+        if (!confirm("导入会覆盖当前账号的进度与错题库，确定继续？")) return;
+        if (d.progress) { progress = d.progress; saveProgress(); }
+        if (d.wrong && d.wrong.q) { wrong = d.wrong; saveWrong(); }
+        indexAll(); renderSidebar(); renderHome(); syncWrongBadge();
+        toast("学习数据已导入" + (d.user ? "（来自 " + esc(d.user) + "）" : ""));
+      } catch (e) { toast("文件格式不正确，导入失败"); }
+    };
+    fr.onerror = function () { toast("读取文件失败"); };
+    fr.readAsText(file);
+  }
   function subProgress(id) {
     if (!progress[id]) progress[id] = { done: {}, current: null };
     if (!progress[id].done) progress[id].done = {};
@@ -109,7 +249,7 @@
   function blankWrong() { return { q: {}, b: {}, u: {}, rounds: [] }; }
   function loadWrong() {
     try {
-      var r = localStorage.getItem(WRONG_KEY);
+      var r = localStorage.getItem(userKey(WRONG_KEY));
       var d = r ? JSON.parse(r) : null;
       if (!d || typeof d !== "object") return blankWrong();
       if (!d.q || typeof d.q !== "object") d.q = {};
@@ -119,8 +259,11 @@
       return d;
     } catch (e) { return blankWrong(); }
   }
-  var wrong = loadWrong();
-  function saveWrong() { try { localStorage.setItem(WRONG_KEY, JSON.stringify(wrong)); } catch (e) {} }
+  var wrong = blankWrong();
+  function saveWrong() {
+    if (document.body.classList.contains("auth-mode")) return;   // 登录页上不写入，避免串账号
+    try { localStorage.setItem(userKey(WRONG_KEY), JSON.stringify(wrong)); } catch (e) {}
+  }
   function hashStr(s) {
     var h = 5381;
     s = String(s == null ? "" : s);
@@ -331,7 +474,7 @@
 
   function show(view) {
     closeSidebar(); // 任何视图切换都收起侧边栏，避免浮层压住内容
-    ["viewHome", "viewStudy", "viewQuiz", "viewLine", "viewCase", "viewEssay", "viewAnalysis"].forEach(function (v) { $(v).hidden = true; });
+    ["viewHome", "viewStudy", "viewQuiz", "viewLine", "viewCase", "viewEssay", "viewAnalysis", "viewAuth"].forEach(function (v) { $(v).hidden = true; });
     $(view).hidden = false;
   }
 
@@ -488,14 +631,16 @@
           if (!im.naturalWidth) im.classList.add("img-broken");
           return;
         }
-        im.classList.add("is-pending");          // 仅作占位微光，纯装饰
+        im.classList.add("is-pending");          // 静态占位，纯装饰
+        var fig = im.parentNode;
+        if (fig && fig.classList) fig.classList.add("is-loading");   // 显示「配图加载中…」，不再是一团灰雾
         function ok() {
           im.classList.remove("is-pending");
-          var f = im.parentNode; if (f && f.classList) f.classList.remove("is-broken");
+          if (fig && fig.classList) { fig.classList.remove("is-broken"); fig.classList.remove("is-loading"); }
         }
         function bad() {
           im.classList.remove("is-pending"); im.classList.add("img-broken");
-          var f = im.parentNode; if (f && f.classList) f.classList.add("is-broken");
+          if (fig && fig.classList) { fig.classList.remove("is-loading"); fig.classList.add("is-broken"); }
         }
         im.addEventListener("load", ok);
         im.addEventListener("error", bad);
@@ -981,7 +1126,7 @@
       quiz.label = quizFilterName(filter);
       var cnt = n || 12;
       quiz.list = shuffle(pool, Date.now() % 99991).slice(0, cnt);
-      quiz.i = 0; quiz.right = 0; quiz.answered = false; quiz.picked = []; quiz.wrongIds = [];
+      quiz.i = 0; quiz.right = 0; quiz.answered = false; quiz.picked = []; quiz.wrongIds = []; quiz.finished = false;
       if (filter !== "all" && filter.indexOf(":") < 0) state.boardId = filter;
       show("viewQuiz"); renderQuiz();
     });
@@ -1031,6 +1176,21 @@
     }
     judgeQuiz([i]);
   }
+  /* 答完一题后一定能“去对应章节”复习：
+     有关联考点就直接跳考点；没有关联考点时按「该题所属单元 → 整个板块」回退，保证每题都能跳 */
+  function quizJumpHtml(q) {
+    var acts = "";
+    if (q.j && findItem(q.j)) {
+      acts += '<button type="button" data-jump="' + esc(q.j) + '"><i>考点</i>去学这道题的考点</button>';
+    }
+    if (q.b && q.u) {
+      acts += '<button type="button" data-unitgo="' + esc(q.b + "|" + q.u) + '"><i>章节</i>去学' + esc(unitNameOf(q.u) || bName(q.b)) + "</button>";
+    } else if (q.b) {
+      acts += '<button type="button" data-unitgo="' + esc(q.b + "|") + '"><i>板块</i>去学' + esc(bName(q.b)) + "</button>";
+    }
+    if (!acts) return "";
+    return '<div class="b-link" style="margin-top:10px">' + acts + "</div>";
+  }
   function judgeQuiz(picked) {
     if (quiz.answered) return;
     var q = quiz.list[quiz.i];
@@ -1051,7 +1211,7 @@
     var tip = q.e || (q.y ? "本题出自 " + q.y + " 年考研政治真题第 " + q.n + " 题（" + (isMulti(q) ? "多选" : "单选") + "），正确答案为 " + letters(q.a) + "。可点击下方按钮跳到对应考点复习。" : "暂无解析");
     var ex = $("quizEx");
     ex.innerHTML = '<div class="quiz-ex"><strong>' + (ok ? "✓ 正确" : "✗ 正确答案：" + letters(q.a)) + "</strong><br>" + tip +
-      (q.j ? '<div class="b-link" style="margin-top:8px"><button type="button" data-jump="' + esc(q.j) + '"><i>关联</i>查看对应考点</button></div>' : "") + "</div>";
+      quizJumpHtml(q) + "</div>";
     var sub = $("quizSubmit");
     if (sub) sub.hidden = true;
     var nx = $("quizNext");
@@ -1090,6 +1250,12 @@
         if (q.y) zhenti++;
       });
       var h = '<div class="wrap"><div class="hero"><h1>随机自测</h1><p>按板块、章节或年份抽题。单选点选项即判，多选可多次点选后提交；答完即时给解析，并可跳到对应考点复习。</p></div>';
+      /* 上一轮没做完（例如中途跳去复习）就给一个继续入口，不用重头再抽题 */
+      if (quiz.list.length && !quiz.finished) {
+        h += '<div class="sec-title">继续</div><div class="cards">' +
+          '<button type="button" class="card" data-quizresume="1" style="--cc:var(--accent)"><div class="card-top"><b>继续上次练习</b><span class="bdg">第 ' +
+          (quiz.i + 1) + " / " + quiz.list.length + ' 题</span></div><p>' + esc(quiz.label || "自测") + " · 已答对 " + quiz.right + " 题</p></button></div>";
+      }
       h += '<div class="sec-title">选择范围</div><div class="cards">';
       h += '<button type="button" class="card" data-quiz="all" style="--cc:var(--accent)"><div class="card-top"><b>全库混合</b><span class="bdg">' + bank.length + " 题</span></div><p>自测题与历年真题混合抽取，检验跨板块串联能力。</p></button>";
       if (zhenti) {
@@ -1121,6 +1287,7 @@
   /* 一轮答完：记入历史并展示本轮成绩分析 */
   function finishRound() {
     var t = quiz.list.length, c = quiz.right;
+    quiz.finished = true;
     wrong.rounds.unshift({ at: Date.now(), label: quiz.label || "自测", t: t, c: c, ids: quiz.wrongIds.slice() });
     if (wrong.rounds.length > 20) wrong.rounds.length = 20;
     saveWrong();
@@ -1556,6 +1723,21 @@
   }
 
   /* ---------------- 事件绑定 ---------------- */
+  /* 回到主界面（首页五大板块），并清理顶部进度条与底部操作栏 */
+  function goHome() {
+    if (document.body.classList.contains("auth-mode")) return;
+    loadAll().then(function () {
+      indexAll(); renderSidebar(); renderHome();
+      show("viewHome");
+      var v = $("viewHome");
+      if (v) v.scrollTop = 0;
+      $("topTitle").textContent = "政治线";
+      $("topSub").textContent = "选择板块开始学习";
+      $("progressStrip").hidden = true;
+      $("actionbar").hidden = true;
+      closeSidebar();
+    });
+  }
   function bind() {
     dom.sidebar = $("sidebar"); dom.scrim = $("scrim");
     $("menuBtn").onclick = openSidebar;
@@ -1576,6 +1758,49 @@
     if ($("packBtn")) $("packBtn").onclick = function () { startPack(); };
     syncPackBtn();
 
+    /* 账号相关入口 */
+    syncUserUI();
+    if ($("logoutBtn")) $("logoutBtn").onclick = function () {
+      if (!confirm("退出登录？学习数据仍保存在本机，下次登录即可继续。")) return;
+      clearSession(); closeSidebar(); location.reload();
+    };
+    if ($("switchUserBtn")) $("switchUserBtn").onclick = function () {
+      clearSession(); closeSidebar(); authTab = "login"; renderAuth("请输入要切换的账号与密码");
+    };
+    if ($("exportBtn")) $("exportBtn").onclick = function () { exportData(); };
+    if ($("importBtn") && $("importFile")) $("importBtn").onclick = function () { $("importFile").click(); };
+    if ($("importFile")) $("importFile").onchange = function () {
+      var f = this.files && this.files[0];
+      if (f) importData(f);
+      this.value = "";
+    };
+    /* 每次「进入」应用回到主界面（含五大板块）：
+       iOS 主屏幕应用常以「恢复冻结页面」的方式打开（不重新加载页面），
+       所以在恢复或长时间离开后主动回到首页，避免一进来停在别的页面 */
+    window.addEventListener("pageshow", function (e) { if (e.persisted) goHome(); });
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) { bind.hiddenAt = Date.now(); return; }
+      if (bind.hiddenAt && Date.now() - bind.hiddenAt > 3 * 60 * 1000) { bind.hiddenAt = 0; goHome(); }
+    });
+
+    /* 登录/注册页交互 */
+    var av = $("viewAuth");
+    if (av) {
+      av.addEventListener("click", function (e) {
+        var el = e.target;
+        var tab = el.closest ? el.closest("[data-auth]") : null;
+        if (tab) { authTab = tab.getAttribute("data-auth"); renderAuth(""); return; }
+        if (el.closest && el.closest("#authGo")) { authSubmit(); return; }
+        if (el.closest && el.closest("#authSkip")) {
+          if (confirm("沿用本机已有进度，不创建账号。之后随时可在侧边栏注册并登录。")) signIn(null);
+          return;
+        }
+      });
+      av.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); authSubmit(); }
+      });
+    }
+
     /* 新版 Service Worker 接管后给出可点击的提示（不自动刷新，避免 iOS 上刷新成环） */
     if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
       navigator.serviceWorker.addEventListener("message", function (e) {
@@ -1593,7 +1818,12 @@
     $("searchBtn").onclick = openSearch;
     $("searchClose").onclick = closeSearch;
     $("searchInput").addEventListener("input", function () { clearTimeout(this._t); this._t = setTimeout(renderSearch, 180); });
-    $("quizBtn").onclick = function () { closeSidebar(); if (state.boardId) startQuiz(state.boardId, 12); else renderQuizHome(); };
+    $("quizBtn").onclick = function () {
+      closeSidebar();
+      /* 上一轮没答完：先给「继续上次练习」的入口，不悄悄重开一轮 */
+      if (quiz.list.length && !quiz.finished) { renderQuizHome(); return; }
+      if (state.boardId) startQuiz(state.boardId, 12); else renderQuizHome();
+    };
     $("timelineBtn").onclick = function () { closeSidebar(); loadAll().then(function () { indexAll(); renderLine(); }); };
     $("caseBtn").onclick = function () { closeSidebar(); loadAll().then(function () { indexAll(); renderCase(""); }); };
     $("essayBtn").onclick = function () { renderEssay(); closeSidebar(); };
@@ -1662,6 +1892,8 @@
       if (cs) { renderCase(cs.getAttribute("data-case")); return; }
       var qz = up("[data-quiz]");
       if (qz) { startQuiz(qz.getAttribute("data-quiz"), bind._n || 12); return; }
+      var qr = up("[data-quizresume]");
+      if (qr) { show("viewQuiz"); renderQuiz(); return; }     // 继续上一轮未答完的练习
       var nm = up("[data-num]");
       if (nm) {
         bind._n = parseInt(nm.getAttribute("data-num"), 10);
@@ -1733,7 +1965,7 @@
           var full = img.getAttribute("data-full") || img.getAttribute("src") || "";
           if (full) {
             img.classList.remove("img-broken");
-            if (img.parentNode && img.parentNode.classList) img.parentNode.classList.remove("is-broken");
+            if (img.parentNode && img.parentNode.classList) { img.parentNode.classList.remove("is-broken"); img.parentNode.classList.add("is-loading"); }
             img.classList.add("is-pending");
             img.src = full + (full.indexOf("?") < 0 ? "?" : "&") + "zzxr=" + Date.now();
             toast("正在重新加载配图…");
@@ -1879,8 +2111,83 @@
       '<button type="button" class="boot-retry" onclick="location.reload()">重新加载</button>' +
       '<button type="button" class="boot-retry ghost" onclick="window.zzxHardReset&&window.zzxHardReset()">重置离线缓存并重载</button>';
   }
-  function init() {
-    applyTheme(); syncImgBtn(); bind();
+  /* ---------------- 登录 / 注册视图 ---------------- */
+  var authTab = "login";
+  function renderAuth(msg) {
+    document.body.classList.add("auth-mode");
+    if (state.user) { state.user = null; progress = {}; wrong = blankWrong(); }
+    syncUserUI();
+    var a = readAccounts();
+    var names = Object.keys(a.users);
+    var hasLegacy = !names.length && (localStorage.getItem("zzx.progress.v1") || localStorage.getItem("zzx.wrong.v1"));
+    if (!names.length) authTab = "reg";
+    var h = '<div class="auth-wrap"><div class="auth-card">' +
+      '<div class="hero" style="padding:0 0 14px;border-bottom:0;margin:0">' +
+      "<h1 style=\"font-size:21px\">政治线<em>·</em>学习账号</h1>" +
+      "<p>登录后看到的即是你自己的学习进度：已掌握条目、错题库、薄弱分析都按账号分开保存。</p></div>" +
+      '<div class="auth-tabs">' +
+      '<button type="button" class="auth-tab' + (authTab === "login" ? " on" : "") + '" data-auth="login">登录</button>' +
+      '<button type="button" class="auth-tab' + (authTab === "reg" ? " on" : "") + '" data-auth="reg">注册</button>' +
+      "</div>" +
+      '<div class="auth-field"><label>用户名</label><input id="authName" type="text" autocomplete="username" autocapitalize="off" placeholder="例如：kaoyan" value="' + esc(lastName()) + '"></div>' +
+      '<div class="auth-field"><label>密码</label><input id="authPw" type="password" autocomplete="' + (authTab === "reg" ? "new-password" : "current-password") + '" placeholder="至少 4 位"></div>' +
+      (authTab === "reg" ? '<div class="auth-field"><label>确认密码</label><input id="authPw2" type="password" autocomplete="new-password" placeholder="再输一次"></div>' : "") +
+      '<label class="auth-check"><input id="authRemember" type="checkbox" checked> 记住登录状态（下次打开免输密码）</label>' +
+      '<div class="auth-actions"><button type="button" class="auth-btn primary" id="authGo">' +
+      (authTab === "reg" ? "注册并进入" : "登录") + "</button>" +
+      (hasLegacy ? '<button type="button" class="auth-btn" id="authSkip">先用本机进度</button>' : "") +
+      "</div>" +
+      '<div class="auth-msg" id="authMsg">' + esc(msg || "") + "</div>" +
+      '<p class="auth-note">账号只保存在这台设备上，不需要服务器、不上传任何数据。密码以加盐散列保存，不存明文；换设备时可用「导出学习数据 / 导入学习数据」迁移。</p>' +
+      "</div></div>";
+    $("viewAuth").innerHTML = h;
+    show("viewAuth");
+    $("topTitle").textContent = "登录 / 注册";
+    $("topSub").textContent = names.length ? "已有 " + names.length + " 个账号" : "第一次使用：注册一个账号，进度就归你";
+    var el = $("authName");
+    if (el && !lastName()) { try { el.focus(); } catch (e) {} }
+  }
+  function authSubmit() {
+    var name = ($("authName") || {}).value || "";
+    var pw = ($("authPw") || {}).value || "";
+    var msg = $("authMsg");
+    var remember = !$("authRemember") || $("authRemember").checked;
+    function say(m) { if (msg) msg.textContent = m || ""; }
+    if (authTab === "reg") {
+      var pw2 = ($("authPw2") || {}).value || "";
+      if (pw !== pw2) return say("两次输入的密码不一致");
+      say("正在创建账号…");
+      registerAccount(name, pw).then(function (u) {
+        rememberName(u);
+        setSession(u, remember);
+        toast("账号已创建，学习进度将保存在「" + u + "」名下");
+        signIn(u);
+      }).catch(function (e) { say((e && e.message) || "注册失败"); });
+    } else {
+      say("正在登录…");
+      loginAccount(name, pw).then(function (u) {
+        rememberName(u);
+        setSession(u, remember);
+        toast("已登录：" + u);
+        signIn(u);
+      }).catch(function (e) { say((e && e.message) || "登录失败"); });
+    }
+  }
+  function syncUserUI() {
+    var el = $("userName");
+    if (el) el.textContent = state.user || (document.body.classList.contains("auth-mode") ? "未登录" : "本机用户");
+  }
+  /* 登录成功（或选择本机身份）后进入主流程 */
+  function signIn(name) {
+    state.user = name || null;
+    progress = loadProgress();
+    wrong = loadWrong();
+    document.body.classList.remove("auth-mode");
+    syncUserUI();
+    boot();
+  }
+
+  function boot() {
     var settled = false;
     /* 看门狗：超过 18 秒仍未就绪，给出可点击的重试入口 */
     var guard = setTimeout(function () { if (!settled) bootError("加载超时"); }, 18000);
@@ -1901,6 +2208,14 @@
       try { indexAll(); renderSidebar(); } catch (e2) {}
       bootError((err && err.message) || "数据异常");
     });
+  }
+
+  /* ---------------- 启动：先过账号，再进入主界面 ---------------- */
+  function init() {
+    applyTheme(); syncImgBtn(); bind();
+    var sess = readSession();
+    if (sess) { signIn(sess); return; }      // 「记住登录」：直接进入自己的进度
+    renderAuth("");
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();

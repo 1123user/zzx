@@ -277,12 +277,15 @@ button{cursor:pointer;border:0;background:none}
   width:100%;border-radius:var(--r-sm);border:1px solid var(--line);display:block;
   background:var(--bg-sunken);cursor:zoom-in;
 }
-/* 图片未就绪时的占位微光：预加载命中时几乎看不到，未命中也不突兀 */
-.b-fig .shot.is-pending{
-  background-image:linear-gradient(100deg,var(--bg-sunken) 30%,var(--bg-hover) 50%,var(--bg-sunken) 70%);
-  background-size:220% 100%;animation:shotPulse 1.3s linear infinite;
+/* 图片未就绪：静态占位 + 明确文案（不再用流动渐变，避免看起来"雾蒙蒙"） */
+.b-fig .shot.is-pending{background-image:none;background:var(--bg-sunken)}
+.b-fig.is-loading{position:relative}
+.b-fig.is-loading::after{
+  content:"配图加载中…";
+  position:absolute;left:0;right:0;top:0;height:120px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12.5px;color:var(--fg-3);letter-spacing:.04em;pointer-events:none;
 }
-@keyframes shotPulse{from{background-position:130% 0}to{background-position:-30% 0}}
 .b-fig figcaption{margin-top:7px;font-size:11.5px;color:var(--fg-3);line-height:1.6}
 .b-link{margin:0 0 12px;display:flex;flex-wrap:wrap;gap:6px}
 .b-link button{
@@ -663,5 +666,27 @@ button{cursor:pointer;border:0;background:none}
   .quiz-page .quiz-card .quiz-ex{margin-top:12px}
   .quiz-page .quiz-foot{margin-top:auto;padding-top:12px;border-top:1px solid var(--line-soft)}
 }
+
+/* ---------------- 账号：登录/注册页 + 账号入口 ---------------- */
+body.auth-mode .sidebar{display:none}
+body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip,body.auth-mode #actionbar{display:none !important}
+.auth-wrap{max-width:430px;margin:0 auto;padding:26px 18px 44px}
+.auth-card{background:var(--bg-elevated);border:1px solid var(--line);border-radius:var(--r);padding:20px 18px}
+.auth-tabs{display:flex;gap:6px;margin:0 0 16px}
+.auth-tab{flex:1;padding:9px;border-radius:var(--r-sm);background:var(--bg-sunken);font-size:13.5px;color:var(--fg-2);border:1px solid var(--line)}
+.auth-tab.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.auth-field{margin:0 0 12px}
+.auth-field label{display:block;font-size:12px;color:var(--fg-3);margin:0 0 5px}
+.auth-field input{width:100%;padding:11px 12px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--bg-sunken);font-size:15px;color:var(--fg)}
+.auth-field input:focus{outline:none;border-color:var(--accent)}
+.auth-actions{display:flex;gap:8px;margin-top:16px}
+.auth-btn{flex:1;padding:12px;border-radius:var(--r-sm);background:var(--bg-sunken);border:1px solid var(--line);font-size:14px;color:var(--fg)}
+.auth-btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.auth-msg{min-height:18px;font-size:12.5px;color:var(--accent);margin:8px 0 0}
+.auth-note{font-size:12px;color:var(--fg-3);line-height:1.75;margin:12px 0 0}
+.auth-check{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fg-2);margin:10px 0 0}
+.user-row{display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--r-sm);background:var(--bg-sunken);font-size:12.5px}
+.user-row .u-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.user-row .u-btn{font-size:12px;color:var(--accent);padding:2px 7px;border-radius:6px;border:1px solid var(--line);background:var(--bg-elevated)}
 
 @media print{.sidebar,.topbar,.actionbar{display:none}}
