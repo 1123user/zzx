@@ -22,6 +22,10 @@
       file: "js/data/xc.js", color: "var(--c-xc)",
       desc: "国内大事与国际热点两条线" }
   ];
+  /* 板块 id 白名单：进度数据只接受这五个 id（校验时必须以它为唯一依据，
+     不能用「两字母」之类的形状推断——毛中特的 id 是 "mao"，三个字母） */
+  var BOARD_ID_SET = {};
+  BOARDS.forEach(function (b) { BOARD_ID_SET[b.id] = 1; });
 
   var KINDS = [
     { v: "", label: "全部" },
@@ -203,12 +207,12 @@
   function sanitizeOpts(o) {
     return (Array.isArray(o) ? o : []).slice(0, 8).map(function (x) { return capStr(x, 300); });
   }
-  /* 进度：只保留已知板块 + 合法考点 id；类型/上限全部收紧 */
+  /* 进度：只保留已知板块（BOARD_ID_SET 白名单）+ 合法考点 id；类型/上限全部收紧 */
   function sanitizeProgressData(d) {
     var out = {};
     if (!isPlainObject(d)) return out;
     Object.keys(d).forEach(function (bid) {
-      if (!/^[a-z]{2}$/.test(bid)) return;
+      if (!BOARD_ID_SET[bid]) return;
       var src = d[bid]; if (!isPlainObject(src)) return;
       var t = { done: {}, current: null, page: 0 }, n = 0;
       if (isPlainObject(src.done)) {
