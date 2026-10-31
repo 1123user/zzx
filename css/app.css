@@ -789,3 +789,120 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
   /* 纵向滚动仍交给浏览器，横向手势留给"跟手收起" */
   .sidebar{touch-action:pan-y}
 }
+
+/* ================= 冲刺三件套（背诵中心 / 原理对材料 / 周年主线） ================= */
+.home-foot{margin:14px 0 0;font-size:12px;color:var(--fg-3);line-height:1.75}
+.sprint-card p{min-height:38px}
+.tier-bar{display:flex;align-items:center;gap:10px;justify-content:space-between;margin:10px 0 4px;padding:9px 12px;
+  border:1px dashed var(--line);border-radius:var(--r-sm);background:var(--bg-sunken);font-size:12px;color:var(--fg-2)}
+.tier-btn{flex:0 0 auto;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg-elevated);
+  font-size:12px;color:var(--accent);font-weight:600}
+.hot-note{margin:8px 0 2px;font-size:11.5px;color:var(--fg-3)}
+.hot-note b{color:var(--accent)}
+.hero-mini{padding:4px 0 14px;border-bottom:1px solid var(--line-soft);margin:0 0 14px}
+.hero-mini h1{font-size:21px;margin:0 0 6px;line-height:1.35}
+.hero-mini h1 em{font-style:normal;color:var(--accent)}
+.hero-mini p{margin:0;font-size:12.5px;color:var(--fg-2);line-height:1.7}
+
+/* —— 马原：原理 × 材料 —— */
+.pair-tools{display:flex;gap:8px;align-items:center;margin:0 0 6px}
+.pair-tools .search-box{flex:1;min-width:0}
+.pair-tools .chip{flex:0 0 auto;white-space:nowrap}
+.pair-card{border:1px solid var(--line);border-radius:var(--r);background:var(--bg-elevated);padding:14px 15px;margin:0 0 12px}
+.pair-head{display:flex;align-items:flex-start;gap:8px;justify-content:space-between;margin:0 0 10px}
+.pair-head h3{margin:0;font-size:15.5px;line-height:1.45}
+.pair-rank{flex:0 0 auto;font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(192,57,43,.1);
+  color:#b8322f;border:1px solid rgba(192,57,43,.25);white-space:nowrap}
+.pair-r0{background:var(--bg-sunken);color:var(--fg-3);border-color:var(--line)}
+.pair-sec{margin:0 0 10px}
+.pair-sec>i,.bs-clue i,.bs-method i,.bs-why i{display:inline-block;font-style:normal;font-size:11px;font-weight:700;
+  color:var(--accent);letter-spacing:.02em;margin:0 0 4px;padding:1px 7px;border-radius:5px;background:rgba(184,50,47,.08)}
+.pair-one{margin:6px 0 0;font-size:15px;line-height:1.85;color:var(--fg);font-weight:600;
+  border-left:3px solid var(--accent);padding:6px 0 6px 11px;background:var(--bg-sunken);border-radius:0 6px 6px 0}
+.pair-one.pair-hidden{filter:blur(5px);user-select:none;cursor:pointer}
+.pair-sig{list-style:none;margin:4px 0 0;padding:0}
+.pair-sig li{display:flex;gap:8px;align-items:baseline;padding:6px 0;border-bottom:1px dashed var(--line-soft);font-size:13.5px;line-height:1.72}
+.pair-sig li:last-child{border-bottom:0}
+.sig-q{flex:1 1 58%;min-width:0;color:var(--fg-2)}
+.sig-arrow{color:var(--fg-3);flex:0 0 auto}
+.pair-sig b{flex:1 1 42%;min-width:0;color:var(--accent);font-weight:600}
+.pair-frame{margin:4px 0 0;padding-left:20px;font-size:13px;line-height:1.8;color:var(--fg-2)}
+.pair-frame li{margin:0 0 5px}
+.pair-exams{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 0}
+.pair-exams .pe{font-size:12px;padding:5px 9px;border-radius:8px;background:var(--bg-sunken);border:1px solid var(--line-soft);color:var(--fg-2);line-height:1.55}
+.pair-exams .pe b{color:var(--fg);margin-right:5px}
+.pair-exams .pe em{font-style:normal;color:var(--accent);margin-left:5px}
+.pair-tip{font-size:12.5px;line-height:1.78;color:var(--fg-2);background:rgba(30,111,159,.06);
+  border:1px solid rgba(30,111,159,.16);border-radius:8px;padding:9px 11px;margin:0 0 10px}
+.pair-foot{text-align:right}
+
+/* —— 史纲：周年主线 —— */
+.anniv-lines{display:grid;gap:6px;margin:0 0 4px}
+.al-item{display:flex;gap:9px;align-items:baseline;font-size:12.5px;line-height:1.7;padding:7px 10px;
+  border-radius:8px;background:var(--bg-sunken);border:1px solid var(--line-soft)}
+.al-item b{flex:0 0 108px;color:var(--c-sg);font-size:12.5px}
+.al-item span{flex:1;min-width:0;color:var(--fg-2)}
+.annv-card{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line-soft)}
+.annv-card:last-child{border-bottom:0}
+.annv-y{flex:0 0 66px;text-align:center;padding-top:2px}
+.annv-y b{display:block;font-size:15px;color:var(--c-sg);line-height:1.3}
+.annv-y span{display:block;font-size:10.5px;color:var(--fg-3);margin-top:2px}
+.annv-main{flex:1;min-width:0}
+.annv-main h4{margin:0 0 4px;font-size:14px;line-height:1.5}
+.annv-main p{margin:0;font-size:13px;line-height:1.8;color:var(--fg-2)}
+.annv-links{margin:7px 0 0;display:flex;gap:6px;flex-wrap:wrap}
+
+/* —— 背诵中心 —— */
+.bs-bar{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+.bs-prog{flex:1;height:6px;border-radius:6px;background:var(--line);overflow:hidden}
+.bs-prog i{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .25s var(--ease-out)}
+.bs-bar span{flex:0 0 auto;font-size:12px;color:var(--fg-3)}
+.bs-tabs{display:flex;gap:6px;margin:0 0 8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+.bs-tab{flex:0 0 auto;padding:8px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg-elevated);
+  font-size:13px;color:var(--fg-2);display:flex;align-items:center;gap:6px}
+.bs-tab em{font-style:normal;font-size:11px;color:var(--fg-3)}
+.bs-tab.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.bs-tab.on em{color:rgba(255,255,255,.82)}
+.bs-filters{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.bs-sec>h3{font-size:13px;color:var(--fg-3);font-weight:600;margin:16px 0 8px;letter-spacing:.02em}
+.bs-group{margin:0 0 12px}
+.bs-group-name{font-size:12px;color:var(--c-my);font-weight:700;margin:0 0 6px}
+.bs-item{border:1px solid var(--line);border-radius:var(--r);background:var(--bg-elevated);padding:12px 13px;margin:0 0 9px}
+.bs-item.is-done{border-color:rgba(30,111,159,.35)}
+.bs-top{display:flex;align-items:flex-start;gap:8px}
+.bs-no{flex:0 0 auto;font-size:11px;color:var(--fg-3);font-variant-numeric:tabular-nums;padding-top:3px}
+.bs-title{flex:1;min-width:0;font-size:14.5px;line-height:1.55}
+.bs-item.is-done .bs-title{color:var(--fg-3)}
+.bs-lv{flex:0 0 auto;font-size:10px;padding:1px 6px;border-radius:5px;background:rgba(192,57,43,.1);color:#b8322f;margin-top:3px}
+.bs-check{flex:0 0 auto;width:26px;height:26px;border-radius:8px;border:1.5px solid var(--line);
+  background:var(--bg-sunken);font-size:13px;line-height:1;color:#fff;display:grid;place-items:center}
+.bs-check.on{background:var(--accent);border-color:var(--accent)}
+.bs-clue{margin:8px 0 0;font-size:12.5px;line-height:1.75;color:var(--fg-2)}
+.bs-body{margin:8px 0 0;transition:filter .2s}
+.bs-body p{margin:0 0 7px;font-size:14.5px;line-height:1.9;color:var(--fg)}
+.bs-body p:last-child{margin-bottom:0}
+.bs-body.bs-hidden{filter:blur(6px);cursor:pointer}
+.bs-method,.bs-why{margin:9px 0 0;font-size:12.5px;line-height:1.8;color:var(--fg-2)}
+.bs-why{color:var(--fg-3)}
+@media (max-width:900px){
+  .pair-tools{flex-wrap:wrap}
+  .pair-tools .search-box{flex:1 1 100%}
+  .annv-y{flex-basis:58px}
+  .al-item b{flex-basis:94px}
+}
+@media (max-width:560px){
+  .pair-sig li{flex-wrap:wrap;gap:2px 6px}
+  .sig-q{flex:1 1 100%}
+  .sig-arrow{display:none}
+  .pair-sig b{flex:1 1 100%;padding-left:0;font-size:13px}
+  .pair-sig b::before{content:"→ ";color:var(--fg-3);font-weight:400}
+  .pair-one{font-size:14.5px;line-height:1.8}
+  .bs-body p{font-size:14px}
+  .hero-mini h1{font-size:19px}
+}
+.pair-howto{margin:10px 0 4px;border:1px solid var(--line);border-radius:var(--r-sm);
+  background:var(--bg-elevated);padding:10px 12px;font-size:12.5px;color:var(--fg-2)}
+.pair-howto summary{cursor:pointer;font-weight:600;color:var(--accent);font-size:12.5px;line-height:1.6}
+.pair-howto ol{margin:8px 0 0;padding-left:18px;line-height:1.78}
+.pair-howto li{margin:0 0 5px}
+.pair-howto b{color:var(--fg)}

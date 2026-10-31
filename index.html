@@ -110,6 +110,15 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
     <button class="side-action" id="essayBtn" type="button">
       <span>材料分析题</span><i>2010—2024 · 34—38 题</i>
     </button>
+    <button class="side-action" id="bsBtn" type="button">
+      <span>背诵中心</span><i>92 条 · 手机离线背</i>
+    </button>
+    <button class="side-action" id="pairBtn" type="button">
+      <span>原理对材料</span><i>马原 · 18 原理</i>
+    </button>
+    <button class="side-action" id="annivBtn" type="button">
+      <span>2026 整周年主线</span><i>史纲 · 24 节点</i>
+    </button>
     <button class="side-action" id="analysisBtn" type="button">
       <span>错题与薄弱分析</span><i id="wrongBadge">暂无错题</i>
     </button>
@@ -192,6 +201,9 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
     <section class="view" id="viewCase" hidden></section>
     <section class="view" id="viewEssay" hidden></section>
     <section class="view" id="viewAnalysis" hidden></section>
+    <section class="view" id="viewBs" hidden></section>
+    <section class="view" id="viewPair" hidden></section>
+    <section class="view" id="viewAnniv" hidden></section>
     <section class="view" id="viewAuth" hidden></section>
     <div class="actionbar" id="actionbar" hidden></div>
   </main>
@@ -227,6 +239,7 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
 
 <div class="toast" id="toast" hidden></div>
 
+<script src="js/data/tier.js"></script>
 <script src="js/app.js"></script>
 <script src="js/pwa.js"></script>
 </body>

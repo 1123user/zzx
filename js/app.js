@@ -45,6 +45,7 @@
   var state = {
     boardId: null, unitId: null, kind: "", index: 0, page: 0, done: {},
     imgMode: localStorage.getItem(IMG_KEY) || "on",
+    full: localStorage.getItem("zzx.full") === "1",   // 冲刺模式（默认）／全量模式
     user: null                       // 当前登录账号；null = 本机身份（无账号）
   };
   /* ---------------- 本地数据库（IndexedDB）+ 内存缓存 ----------------
@@ -1050,7 +1051,7 @@
 
   function show(view) {
     closeSidebar(); // 任何视图切换都收起侧边栏，避免浮层压住内容
-    ["viewHome", "viewStudy", "viewQuiz", "viewLine", "viewCase", "viewEssay", "viewAnalysis", "viewAuth"].forEach(function (v) { $(v).hidden = true; });
+    ["viewHome", "viewStudy", "viewQuiz", "viewLine", "viewCase", "viewEssay", "viewAnalysis", "viewAuth", "viewPair", "viewAnniv", "viewBs"].forEach(function (v) { $(v).hidden = true; });
     $(view).hidden = false;
   }
 
@@ -1107,7 +1108,10 @@
     var tot = 0, dn = 0;
     BOARDS.forEach(function (b) {
       var d = getBoard(b.id); if (!d) return;
-      tot += d.items.length; dn += doneCount(b.id);
+      var pool = d.items.filter(function (x) { return inMainline(x, b.id); });
+      var pr = progress[b.id];
+      tot += pool.length;
+      pool.forEach(function (x) { if (pr && pr.done && pr.done[x.id]) dn++; });
     });
     var h = '<div class="wrap">';
     h += '<div class="hero"><h1>把考点连成<em>一条线</em></h1>' +
@@ -1121,17 +1125,37 @@
     h += BOARDS.map(function (b) {
       var d = getBoard(b.id); if (!d) return "";
       var p = progress[b.id] || { done: {} };
-      var n = p.done ? Object.keys(p.done).length : 0;
-      var total = d.items.length;
+      var pool = d.items.filter(function (x) { return inMainline(x, b.id); });
+      var n = 0;
+      pool.forEach(function (x) { if (p.done && p.done[x.id]) n++; });
+      var total = pool.length;
       var pct = total ? Math.round(n / total * 100) : 0;
       var annTag = boardAnnivs(b.id).length ? '<span class="bdg bdg-anniv">本年度整周年重点</span>' : "";
       return '<button type="button" class="card" data-open="' + b.id + '" style="--cc:' + b.color + '">' +
         '<div class="card-top"><b>' + esc(b.name) + '</b><span class="bdg">' + b.badge + '</span>' + annTag + '</div>' +
         "<p>" + esc(b.desc) + "</p>" +
         '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
-        '<div class="mrow"><span>' + total + " 个考点</span><span>" + n + " 已学 · " + pct + "%</span></div></button>";
+        '<div class="mrow"><span>' + total + " 个考点" + (state.full ? "" : " · 主线") + "</span><span>" + n + " 已学 · " + pct + "%</span></div></button>";
     }).join("");
     h += "</div>";
+
+    /* 冲刺三件套：手机上依次是「背 → 对 → 串」，放在板块之上，打开即可点 */
+    h += '<div class="sec-title">冲刺三件套</div><div class="cards">';
+    h += '<button type="button" class="card sprint-card" data-home="bs" style="--cc:var(--c-my)">' +
+      '<div class="card-top"><b>背诵中心</b><span class="bdg">92 条</span></div>' +
+      "<p>27 届背诵清单：标题→线索→正文→方法论，可直接勾选「已背」，遮住正文自测。</p>" +
+      '<div class="mrow"><span>四部分 · 重点分级</span><span>手机离线可用</span></div></button>';
+    h += '<button type="button" class="card sprint-card" data-home="pair" style="--cc:var(--c-my)">' +
+      '<div class="card-top"><b>马原 · 原理对材料</b><span class="bdg">18 原理</span></div>' +
+      "<p>背完一句原理，立刻知道材料里出现哪句话就该答它；附真题出处与三步框架。</p>" +
+      '<div class="mrow"><span>材料 → 原理反查</span><span>2010—2024 真题</span></div></button>';
+    h += '<button type="button" class="card sprint-card" data-home="anniv" style="--cc:var(--c-sg)">' +
+      '<div class="card-top"><b>2026 整周年主线</b><span class="bdg">24 节点</span></div>' +
+      "<p>史纲只背这一页：逢五逢十周年 + 一句结论，救亡—革命—建设—改革—复兴五条线。</p>" +
+      '<div class="mrow"><span>史纲已瘦身</span><span>直接背结论</span></div></button>';
+    h += "</div>";
+
+    h += '<div class="home-foot">默认「冲刺模式」：过程性细节与 34 篇文献已收起，需要时可一键切回全量。</div>';
 
     h += "</div>";
     $("viewHome").innerHTML = h;
@@ -1140,17 +1164,55 @@
     $("topSub").textContent = "五大板块 · 依据 2027 年考试大纲";
     $("progressStrip").hidden = true;
     $("actionbar").hidden = true;
+    consumeDeepLink();
+  }
+
+  /* 主屏图标长按快捷方式：?go=bs|pair|anniv 直接进对应视图 */
+  function consumeDeepLink() {
+    var m = /[?&]go=(bs|pair|anniv)/.exec(location.search || "");
+    if (!m) return;
+    var v = m[1];
+    try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
+    openSprint(v);
   }
 
   /* ---------------- 学习视图 ---------------- */
+  /* ---------------- 冲刺分层（tier.js） ----------------
+     默认「冲刺模式」：只走主线条目——已下线的过程细节与 34 篇文献不进入阅读流；
+     侧栏/学习页可切「全量」，全部条目立即回来。data 文件本身不删，随时可回退。 */
+  function tierOf(boardId) {
+    var T = window.ZZX_TIER || {};
+    return T[boardId] || {};
+  }
+  function inMainline(it, bid) {
+    if (state.full) return true;
+    var t = tierOf(bid || state.boardId || it._b);
+    if (t.cut && t.cut.indexOf(it.id) >= 0) return false;
+    if (t.main && t.main.length && t.main.indexOf(it.id) < 0) return false;
+    if (t.docHide && it.kind === "doc") return false;
+    return true;
+  }
   function filteredItems() {
     var d = state.boardId ? getBoard(state.boardId) : null;
     if (!d) return [];
     return (d.items || []).filter(function (it) {
       if (state.kind && it.kind !== state.kind) return false;
       if (state.unitId && it.unit !== state.unitId) return false;
+      if (!inMainline(it)) return false;
       return true;
     });
+  }
+  function countCut(boardId) {
+    var d = getBoard(boardId); if (!d) return 0;
+    var t = tierOf(boardId), n = 0;
+    (d.items || []).forEach(function (it) {
+      var off = false;
+      if (t.cut && t.cut.indexOf(it.id) >= 0) off = true;
+      else if (t.main && t.main.length && t.main.indexOf(it.id) < 0) off = true;
+      if (t.docHide && it.kind === "doc") off = true;
+      if (off) n++;
+    });
+    return n;
   }
   function curItem() { return filteredItems()[state.index] || null; }
 
@@ -1358,6 +1420,20 @@
     if (anns.length) {
       h += '<div class="anniv-banner"><strong>本年度整周年重点</strong>' +
         '<span>本科目收录 ' + anns.length + " 个整十／整五／整百周年纪念考点，周年数字已红色标注</span></div>";
+    }
+
+    /* 冲刺模式提示：把「收起了多少」直接摊开，避免误以为考点缺失 */
+    var cutN = countCut(bd.id);
+    if (cutN && !state.full) {
+      h += '<div class="tier-bar"><span>冲刺模式：已收起 ' + cutN + " 条过程细节／文献，只走主线</span>" +
+        '<button type="button" class="tier-btn" data-full="1">看全量 ' + (getBoard(bd.id).items || []).length + "</button></div>";
+    } else if (state.full) {
+      h += '<div class="tier-bar"><span>全量模式：含已下线细节与全部文献</span>' +
+        '<button type="button" class="tier-btn" data-full="0">回到冲刺主线</button></div>';
+    }
+    var hotN = ((window.ZZX_TIER || {}).hot || {})[it.unit];
+    if (hotN) {
+      h += '<div class="hot-note">本单元 2010—2023 年真题 <b>' + hotN + "</b> 道 · 选择题口径</div>";
     }
 
     h += '<div class="item-head">';
@@ -1602,6 +1678,253 @@
         inp._t = setTimeout(function () { renderCase(v); var i2 = $("caseInput"); if (i2) i2.focus(); }, 260);
       });
     }
+  }
+
+  /* ---------------- 通用：按需加载额外数据 ---------------- */
+  var extraLoaded = {};
+  function loadExtra(files) {
+    var chain = Promise.resolve(true);
+    files.forEach(function (f) {
+      if (extraLoaded[f]) return;
+      chain = chain.then(function () {
+        return loadScript(f).then(function (ok) { if (ok) extraLoaded[f] = true; return ok; });
+      });
+    });
+    return chain;
+  }
+
+  /* ================= 马原 · 原理 × 材料对接 =================
+     编排：王一珉「选考点 → 搭框架 → 填材料」；每条原理配「材料里长这样」的触发句。
+     用法：先背 one（一句原理），再记 sig（什么材料该答它），最后看 exams（真题怎么考）。 */
+  var PAIR_FILES = ["js/data/my-pair.js"];
+  var pairHide = localStorage.getItem("zzx.pairhide") === "1";
+  function pairItems() { return ((window.ZZX_MY_PAIR || {}).items || []).slice(); }
+
+  function renderPair(q, forceTop) {
+    q = (q || "").trim();
+    var all = pairItems().sort(function (a, b) { return (b.rank || 0) - (a.rank || 0); });
+    var list = all;
+    if (q) {
+      var k = q.toLowerCase();
+      list = all.filter(function (p) {
+        if (p.name.toLowerCase().indexOf(k) >= 0) return true;
+        if ((p.one || "").toLowerCase().indexOf(k) >= 0) return true;
+        return (p.sig || []).some(function (s) {
+          return (s.q + s.t).toLowerCase().indexOf(k) >= 0;
+        });
+      });
+    }
+    var h = '<div class="wrap">';
+    h += '<div class="crumb"><span>马原</span><span>·</span><span>原理 × 材料对接</span></div>';
+    h += '<div class="hero-mini"><h1>背一句原理，<em>认一句材料</em></h1>' +
+      '<p>' + esc((window.ZZX_MY_PAIR || {}).note || "") + "</p></div>";
+    h += '<div class="pair-tools">' +
+      '<div class="search-box"><input id="pairInput" type="search" placeholder="贴材料原句，或搜「变废为宝」「抓重点」" value="' + esc(q) + '"></div>' +
+      '<button type="button" class="chip' + (pairHide ? " on" : "") + '" data-pairhide="1">' + (pairHide ? "背诵句已遮住" : "遮住背诵句") + "</button></div>";
+    h += '<details class="pair-howto"><summary>王一珉：30 秒读材料 → 选考点（点开）</summary>' +
+      "<ol>" +
+      "<li><b>圈三样</b>：时间、主体、做法。时间本身是史纲考点；做法决定是「为什么」还是「怎么做」。</li>" +
+      "<li><b>看设问动词</b>：是什么／为什么 → 先定性再讲原因；怎么做／意义 → 先对策再讲价值。答偏比答少更亏。</li>" +
+      "<li><b>只抄对得上的原文</b>：比喻句、形容词、细节、问句不抄；数据、时间、人名要先加工；领导人讲话去引号抓关键词。</li>" +
+      "<li><b>最后定原理</b>：材料里出现「对立又统一／转化／偶然／试点／技术该不该」，回到下面对应卡片。</li>" +
+      "</ol></details>";
+
+    if (q && !list.length) {
+      h += '<div class="empty">没匹配到材料信号<br>换个说法试试：转化｜抓重点｜偶然｜试点｜技术该不该</div>';
+    } else {
+      h += '<div class="sec-title">' + (q ? "匹配 " + list.length + " 条原理" : "18 条哲学原理 · 按分析题命中排序") + "</div>";
+      h += list.map(function (p, i) {
+        return '<div class="pair-card">' +
+          '<div class="pair-head"><h3>' + (i + 1) + ". " + esc(p.name) + "</h3>" +
+          (p.rank ? '<span class="pair-rank">分析题 ' + p.rank + " 次</span>" : '<span class="pair-rank pair-r0">以选择题为主</span>') + "</div>" +
+          '<div class="pair-sec"><i>① 背这一句</i>' +
+          '<p class="pair-one' + (pairHide ? " pair-hidden" : "") + '">' + esc(p.one) + "</p></div>" +
+          '<div class="pair-sec"><i>② 材料长这样 → 就答它</i><ul class="pair-sig">' +
+          (p.sig || []).map(function (s) {
+            return "<li><span class=\"sig-q\">" + esc(s.q) + '</span><span class="sig-arrow">→</span><b>' + esc(s.t) + "</b></li>";
+          }).join("") + "</ul></div>" +
+          '<div class="pair-sec"><i>③ 三步框架（原理句—材料句—方法句）</i><ol class="pair-frame">' +
+          (p.frame || []).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ol></div>" +
+          ((p.exams || []).length
+            ? '<div class="pair-sec"><i>④ 真题这么考</i><div class="pair-exams">' +
+              p.exams.map(function (e) {
+                return '<span class="pe"><b>' + e.y + "</b> " + esc(e.t) + ' <em>' + esc(e.hit) + "</em></span>";
+              }).join("") + "</div></div>"
+            : "") +
+          (p.fill ? '<div class="pair-tip">⑤ ' + esc(p.fill) + "</div>" : "") +
+          '<div class="pair-foot"><button type="button" class="ghost-btn" data-jump="' + esc(p.id) + '">查看完整原理 →</button></div>' +
+          "</div>";
+      }).join("");
+    }
+    h += "</div>";
+
+    $("viewPair").innerHTML = h;
+    show("viewPair");
+    if (forceTop || !q) $("viewPair").scrollTop = 0;
+    $("topTitle").textContent = "原理 × 材料";
+    $("topSub").textContent = "背一句 → 认一句材料 → 套三步框架";
+    $("progressStrip").hidden = true;
+    $("actionbar").hidden = true;
+    var inp = $("pairInput");
+    if (inp) {
+      if (q) { inp.focus(); inp.setSelectionRange(q.length, q.length); }
+      inp.addEventListener("input", function () {
+        clearTimeout(inp._t);
+        inp._t = setTimeout(function () { renderPair(inp.value); var i2 = $("pairInput"); if (i2) i2.focus(); }, 300);
+      });
+    }
+  }
+
+  /* ================= 史纲 · 2026 整周年主线 ================= */
+  var ANNIV_FILES = ["js/data/sg-anniv.js"];
+  function renderAnniv() {
+    var D = window.ZZX_SG_ANNIV || { items: [], lines: [] };
+    var items = (D.items || []).slice().sort(function (a, b) { return (a.y - b.y) || (b.n - a.n); });
+    var h = '<div class="wrap">';
+    h += '<div class="crumb"><span>史纲</span><span>·</span><span>2026 整周年主线</span></div>';
+    h += '<div class="hero-mini"><h1>史纲只背<em>这一页</em></h1><p>' + esc(D.note || "") + "</p></div>";
+    h += '<div class="anniv-lines">' + (D.lines || []).map(function (l) {
+      return '<div class="al-item"><b>' + esc(l.name) + "</b><span>" + esc(l.desc) + "</span></div>";
+    }).join("") + "</div>";
+    h += '<div class="sec-title">整周年节点 · ' + items.length + " 个</div>";
+    h += items.map(function (it) {
+      return '<div class="annv-card">' +
+        '<div class="annv-y"><b>' + it.y + '</b><span>' + it.n + " 周年</span></div>" +
+        '<div class="annv-main"><h4>' + esc(it.ev) + '</h4><p>' + esc(it.core) + "</p>" +
+        ((it.ids || []).length
+          ? '<div class="annv-links">' + it.ids.map(function (id) {
+              return '<button type="button" class="chip" data-jump="' + esc(id) + '">回看考点</button>';
+            }).join("") + "</div>"
+          : "") +
+        "</div></div>";
+    }).join("");
+    h += '<div class="home-foot">史纲已按主线瘦身：以上节点 + 高频事件即主线，过程性细节已收起（可在板块页切全量）。</div>';
+    h += "</div>";
+
+    $("viewAnniv").innerHTML = h;
+    show("viewAnniv");
+    $("viewAnniv").scrollTop = 0;
+    $("topTitle").textContent = "2026 整周年";
+    $("topSub").textContent = "24 个节点 · 一句结论直接背";
+    $("progressStrip").hidden = true;
+    $("actionbar").hidden = true;
+  }
+
+  /* ================= 背诵中心（27 届背诵清单 92 条） =================
+     手机主屏打到 PWA 上，打开即背：选部分 → 看「线索」回忆 → 展开正文核对 → 勾「已背」。
+     数据与进度都存本地，离线可用；进度单独一个 key，不并入五板块进度。 */
+  var BS_FILES = ["js/data/beisong.js"];
+  var BS_KEY = "zzx.bs.v1";
+  function bsState() {
+    try {
+      var s = JSON.parse(localStorage.getItem(BS_KEY) || "{}");
+      return { done: s.done || {}, hide: !!s.hide, part: s.part || 0, filter: s.filter || "all" };
+    } catch (e) { return { done: {}, hide: false, part: 0, filter: "all" }; }
+  }
+  function bsSave(s) { try { localStorage.setItem(BS_KEY, JSON.stringify(s)); } catch (e) {} }
+  function bsAll(D) {
+    var out = [];
+    (D.parts || []).forEach(function (p) {
+      (p.sections || []).forEach(function (s) {
+        (s.groups || []).forEach(function (g) {
+          (g.items || []).forEach(function (it) { out.push(it); });
+        });
+      });
+    });
+    return out;
+  }
+  function renderBs() {
+    var D = window.ZZX_BS;
+    if (!D || !D.parts) {
+      $("viewBs").innerHTML = '<div class="wrap"><div class="empty">背诵数据未加载<br>请检查网络后重进</div></div>';
+      show("viewBs"); return;
+    }
+    var st = bsState();
+    var all = bsAll(D);
+    var lv2 = all.filter(function (x) { return x.lv === 2; });
+    var doneN = all.filter(function (x) { return st.done[x.key]; }).length;
+    var pi = Math.min(st.part, D.parts.length - 1);
+    var part = D.parts[pi];
+
+    var h = '<div class="wrap">';
+    h += '<div class="crumb"><span>背诵中心</span><span>·</span><span>' + esc((D.source && D.source.title) || "27 届背诵清单") + "</span></div>";
+    h += '<div class="hero-mini"><h1>打开就背，<em>' + all.length + " 条</em></h1>" +
+      '<p>先看线索回忆，再展开核对；勾「已背」自动记住。内容离线可用。</p></div>';
+
+    h += '<div class="bs-bar"><div class="bs-prog"><i style="width:' + (all.length ? Math.round(doneN / all.length * 100) : 0) + '%"></i></div>' +
+      '<span>' + doneN + " / " + all.length + " 已背</span></div>";
+
+    h += '<div class="bs-tabs">' + D.parts.map(function (p, i) {
+      var n = 0, d = 0;
+      (p.sections || []).forEach(function (s) {
+        (s.groups || []).forEach(function (g) {
+          (g.items || []).forEach(function (it) { n++; if (st.done[it.key]) d++; });
+        });
+      });
+      return '<button type="button" class="bs-tab' + (i === pi ? " on" : "") + '" data-bspart="' + i + '">' +
+        esc(p.abbr) + '<em>' + d + "/" + n + "</em></button>";
+    }).join("") + "</div>";
+
+    h += '<div class="bs-filters">' +
+      '<button type="button" class="chip' + (st.filter === "all" ? " on" : "") + '" data-bsfilter="all">全部</button>' +
+      '<button type="button" class="chip' + (st.filter === "lv2" ? " on" : "") + '" data-bsfilter="lv2">只看必背 ' + lv2.length + "</button>" +
+      '<button type="button" class="chip' + (st.filter === "undone" ? " on" : "") + '" data-bsfilter="undone">未背 ' + (all.length - doneN) + "</button>" +
+      '<button type="button" class="chip' + (st.hide ? " on" : "") + '" data-bshide="1">' + (st.hide ? "正文已遮住" : "遮住正文") + "</button>" +
+      "</div>";
+
+    h += (part.sections || []).map(function (s) {
+      var groups = (s.groups || []).map(function (g) {
+        var items = (g.items || []).filter(function (it) {
+          if (st.filter === "lv2" && it.lv !== 2) return false;
+          if (st.filter === "undone" && st.done[it.key]) return false;
+          return true;
+        });
+        if (!items.length) return "";
+        return '<div class="bs-group"><div class="bs-group-name">' + esc(g.name) + "</div>" +
+          items.map(function (it) {
+            var on = !!st.done[it.key];
+            return '<div class="bs-item' + (on ? " is-done" : "") + '">' +
+              '<div class="bs-top">' +
+              '<span class="bs-no">' + (it.no < 10 ? "0" : "") + it.no + "</span>" +
+              '<b class="bs-title">' + esc(it.title) + "</b>" +
+              (it.lv === 2 ? '<span class="bs-lv">必背</span>' : "") +
+              '<button type="button" class="bs-check' + (on ? " on" : "") + '" data-bsdone="' + it.key + '" aria-label="标记已背">' + (on ? "✓" : "") + "</button>" +
+              "</div>" +
+              (it.clue ? '<div class="bs-clue"><i>线索</i>' + esc(it.clue) + "</div>" : "") +
+              '<div class="bs-body' + (st.hide ? " bs-hidden" : "") + '">' +
+              (it.body || []).map(function (x) { return "<p>" + esc(x) + "</p>"; }).join("") +
+              "</div>" +
+              (it.method ? '<div class="bs-method"><i>方法论</i>' + esc(it.method) + "</div>" : "") +
+              (it.why ? '<div class="bs-why"><i>陷阱</i>' + esc(it.why) + "</div>" : "") +
+              "</div>";
+          }).join("") + "</div>";
+      }).join("");
+      return groups ? '<div class="bs-sec"><h3>' + esc(s.name) + "</h3>" + groups + "</div>" : "";
+    }).join("");
+
+    if (h.indexOf('class="bs-group"') < 0) {
+      h += '<div class="empty">这个筛选下没有条目，换个筛选看看</div>';
+    }
+    h += '<div class="home-foot">数据来源：' + esc(((D.source && D.source.file) || "27 届背诵清单中心自研（终版）")) +
+      " · 重点分级按真题复现与考纲固定搭配判断</div>";
+    h += "</div>";
+
+    var bsSc = $("viewBs").scrollTop, bsFresh = $("viewBs").hidden || !$("viewBs").innerHTML;
+    $("viewBs").innerHTML = h;
+    show("viewBs");
+    $("viewBs").scrollTop = bsFresh ? 0 : bsSc;   // 勾选/筛选用局部重绘，不打断背诵位置
+    $("topTitle").textContent = "背诵中心";
+    $("topSub").textContent = doneN + " / " + all.length + " 已背 · " + esc(part.abbr);
+    $("progressStrip").hidden = true;
+    $("actionbar").hidden = true;
+  }
+
+  /* 冲刺三件套入口（首页卡片 / 侧栏按钮共用） */
+  function openSprint(v) {
+    closeSidebar();
+    if (v === "pair") return loadExtra(PAIR_FILES).then(function () { renderPair("", true); });
+    if (v === "anniv") return loadExtra(ANNIV_FILES).then(function () { renderAnniv(); });
+    return loadExtra(BS_FILES).then(function () { renderBs(); });
   }
 
   /* ---------------- 搜索 ---------------- */
@@ -2664,6 +2987,9 @@
     $("timelineBtn").onclick = function () { closeSidebar(); loadAll().then(function () { indexAll(); renderLine(); }); };
     $("caseBtn").onclick = function () { closeSidebar(); loadAll().then(function () { indexAll(); renderCase(""); }); };
     $("essayBtn").onclick = function () { renderEssay(); closeSidebar(); };
+    $("bsBtn").onclick = function () { openSprint("bs"); };
+    $("pairBtn").onclick = function () { openSprint("pair"); };
+    $("annivBtn").onclick = function () { openSprint("anniv"); };
     $("analysisBtn").onclick = function () { renderAnalysis(wrongCount() ? "weak" : "now"); };
     viewBind();
     /* 动效绑定：刻度条滚动时做中心聚焦；窗口尺寸变化时重排指示条 */
@@ -2688,6 +3014,39 @@
       var el = t.closest ? t : null;
       function up(sel) { return t.closest ? t.closest(sel) : null; }
 
+      var hm = up("[data-home]");
+      if (hm) { openSprint(hm.getAttribute("data-home")); return; }
+      var ph = up("[data-pairhide]");
+      if (ph) {
+        pairHide = !pairHide;
+        localStorage.setItem("zzx.pairhide", pairHide ? "1" : "0");
+        renderPair($("pairInput") ? $("pairInput").value : "");
+        return;
+      }
+      var fg = up("[data-full]");
+      if (fg) {
+        state.full = fg.getAttribute("data-full") === "1";
+        localStorage.setItem("zzx.full", state.full ? "1" : "0");
+        state.index = 0; state.page = 0;
+        renderStudy(); renderSidebar();
+        toast(state.full ? "已切到全量（含已下线细节与文献）" : "已回到冲刺主线");
+        return;
+      }
+      var bsp = up("[data-bspart]");
+      if (bsp) { var s1 = bsState(); s1.part = parseInt(bsp.getAttribute("data-bspart"), 10) || 0; bsSave(s1); renderBs(); return; }
+      var bsf = up("[data-bsfilter]");
+      if (bsf) { var s2 = bsState(); s2.filter = bsf.getAttribute("data-bsfilter"); bsSave(s2); renderBs(); return; }
+      var bsh = up("[data-bshide]");
+      if (bsh) { var s3 = bsState(); s3.hide = !s3.hide; bsSave(s3); renderBs(); return; }
+      var bb = up(".bs-body");
+      if (bb && bb.classList.contains("bs-hidden")) { bb.classList.remove("bs-hidden"); return; }
+      var bsd = up("[data-bsdone]");
+      if (bsd) {
+        var s4 = bsState(), no4 = bsd.getAttribute("data-bsdone");
+        if (s4.done[no4]) delete s4.done[no4]; else s4.done[no4] = 1;
+        bsSave(s4); renderBs();
+        return;
+      }
       var b = up("[data-board]");
       if (b) {
         openBoard(b.getAttribute("data-board"));
