@@ -98,20 +98,10 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
       <button class="side-close" id="sideClose" type="button" aria-label="关闭菜单">✕</button>
     </div>
 
-    <button class="side-action" id="timelineBtn" type="button">
-      <span>双主线时间轴</span><i>事件 ⇄ 党的政策</i>
-    </button>
-    <button class="side-action" id="quizBtn" type="button">
-      <span>随机自测练习</span><i id="quizTotal"></i>
-    </button>
-    <button class="side-action" id="caseBtn" type="button">
-      <span>案例反查原理</span><i>马原专用</i>
-    </button>
-    <button class="side-action" id="essayBtn" type="button">
-      <span>材料分析题</span><i>2010—2024 · 34—38 题</i>
-    </button>
+    <!-- 背诵优先：答题类入口（随机自测 / 材料分析题 / 错题分析）已停用，DOM 保留但隐藏，
+         这样原有事件绑定不必改动，也不会因为缺元素而中断启动 -->
     <button class="side-action" id="bsBtn" type="button">
-      <span>背诵中心</span><i>92 条 · 手机离线背</i>
+      <span>背诵中心</span><i id="bsSideN">92 条 · 手机离线背</i>
     </button>
     <button class="side-action" id="pairBtn" type="button">
       <span>原理对材料</span><i>马原 · 18 原理</i>
@@ -119,7 +109,19 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
     <button class="side-action" id="annivBtn" type="button">
       <span>2026 整周年主线</span><i>史纲 · 24 节点</i>
     </button>
-    <button class="side-action" id="analysisBtn" type="button">
+    <button class="side-action" id="timelineBtn" type="button">
+      <span>双主线时间轴</span><i>事件 ⇄ 党的政策</i>
+    </button>
+    <button class="side-action" id="caseBtn" type="button">
+      <span>案例反查原理</span><i>马原专用</i>
+    </button>
+    <button class="side-action" id="quizBtn" type="button" hidden>
+      <span>随机自测练习</span><i id="quizTotal"></i>
+    </button>
+    <button class="side-action" id="essayBtn" type="button" hidden>
+      <span>材料分析题</span><i>2010—2024 · 34—38 题</i>
+    </button>
+    <button class="side-action" id="analysisBtn" type="button" hidden>
       <span>错题与薄弱分析</span><i id="wrongBadge">暂无错题</i>
     </button>
 
@@ -242,6 +244,7 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
 <script src="js/data/imgsize.js"></script>
 <script src="js/data/zhenti-stat.js"></script>
 <script src="js/data/tier.js"></script>
+<script src="js/data/beisong.js"></script>
 <script src="js/app.js"></script>
 <script src="js/pwa.js"></script>
 </body>

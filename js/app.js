@@ -1107,6 +1107,8 @@
       '<div class="bar" style="height:5px;border-radius:5px;background:var(--line);overflow:hidden;margin:8px 0 6px">' +
       '<i style="display:block;height:100%;width:' + (tot ? Math.round(dn / tot * 100) : 0) + '%;background:var(--accent);border-radius:5px"></i></div>' +
       '<p style="font-size:12px;color:var(--fg-3);margin:0">' + (dn ? "继续保持，逐条过一遍即通关。" : "点开任一板块，从第一条开始。") + "</p></div>";
+    var bsEl = $("bsSideN");
+    if (bsEl) { var bn = bsTotal(); bsEl.textContent = bn ? (bsDoneCount() + "/" + bn + " 已背") : "手机离线背"; }
     syncQuizTotal();
     syncWrongBadge();
   }
@@ -1129,14 +1131,34 @@
       tot += pool.length;
       pool.forEach(function (x) { if (pr && pr.done && pr.done[x.id]) dn++; });
     });
+    var bsN = bsTotal(), bsD = bsDoneCount();
     var h = '<div class="wrap">';
-    h += '<div class="hero"><h1>把考点连成<em>一条线</em></h1>' +
+    h += '<div class="hero"><h1>打开就<em>背</em>，背完就记住</h1>' +
       '<p>依据《2027 年考研政治考试大纲》梳理 · 马原 / 毛中特 / 史纲 / 思修法治 / 形策</p>' +
       '<div class="hero-stats">' +
       "<div><b>" + tot + "</b><span>考点</span></div>" +
-      '<div><b id="heroQuizN">' + (quizLoaded() ? quizAll().length : "—") + "</b><span>自测题</span></div>" +
-      '<div><b>462</b><span>历年真题</span></div>' +
+      "<div><b>" + (bsN || "—") + "</b><span>背诵条目</span></div>" +
+      "<div><b>" + (bsN ? bsD : "—") + "</b><span>已背</span></div>" +
       "</div></div>";
+
+    /* 背诵优先级最高：一进来就是「今天还要背几条 / 今天该复习几条」 */
+    h += bsCtaHtml();
+
+    /* 背诵三件套：背（清单）→ 对（材料）→ 串（周年线） */
+    h += '<div class="sec-title">背诵三件套</div><div class="cards">';
+    h += '<button type="button" class="card sprint-card" data-home="bs" style="--cc:var(--c-my)">' +
+      '<div class="card-top"><b>背诵中心</b><span class="bdg">' + (bsN || 92) + " 条</span></div>" +
+      "<p>27 届背诵清单：标题→线索→正文→方法论；✓ 会背 / ? 模糊，遮住正文按键回忆。</p>" +
+      '<div class="mrow"><span>四部分 · 重点分级</span><span>手机离线可用</span></div></button>';
+    h += '<button type="button" class="card sprint-card" data-home="pair" style="--cc:var(--c-my)">' +
+      '<div class="card-top"><b>马原 · 原理对材料</b><span class="bdg">18 原理</span></div>' +
+      "<p>背完一句原理，立刻知道材料里出现哪句话就该答它；附三步答题框架与考纲落点。</p>" +
+      '<div class="mrow"><span>材料 → 原理反查</span><span>18 条哲学原理</span></div></button>';
+    h += '<button type="button" class="card sprint-card" data-home="anniv" style="--cc:var(--c-sg)">' +
+      '<div class="card-top"><b>2026 整周年主线</b><span class="bdg">24 节点</span></div>' +
+      "<p>史纲只背这一页：逢五逢十周年 + 一句结论，救亡—革命—建设—改革—复兴五条线。</p>" +
+      '<div class="mrow"><span>史纲已瘦身</span><span>直接背结论</span></div></button>';
+    h += "</div>";
 
     h += homeNextHtml();
 
@@ -1158,32 +1180,61 @@
     }).join("");
     h += "</div>";
 
-    /* 冲刺三件套：手机上依次是「背 → 对 → 串」，放在板块之上，打开即可点 */
-    h += '<div class="sec-title">冲刺三件套</div><div class="cards">';
-    h += '<button type="button" class="card sprint-card" data-home="bs" style="--cc:var(--c-my)">' +
-      '<div class="card-top"><b>背诵中心</b><span class="bdg">92 条</span></div>' +
-      "<p>27 届背诵清单：标题→线索→正文→方法论，可直接勾选「已背」，遮住正文自测。</p>" +
-      '<div class="mrow"><span>四部分 · 重点分级</span><span>手机离线可用</span></div></button>';
-    h += '<button type="button" class="card sprint-card" data-home="pair" style="--cc:var(--c-my)">' +
-      '<div class="card-top"><b>马原 · 原理对材料</b><span class="bdg">18 原理</span></div>' +
-      "<p>背完一句原理，立刻知道材料里出现哪句话就该答它；附真题出处与三步框架。</p>" +
-      '<div class="mrow"><span>材料 → 原理反查</span><span>2010—2024 真题</span></div></button>';
-    h += '<button type="button" class="card sprint-card" data-home="anniv" style="--cc:var(--c-sg)">' +
-      '<div class="card-top"><b>2026 整周年主线</b><span class="bdg">24 节点</span></div>' +
-      "<p>史纲只背这一页：逢五逢十周年 + 一句结论，救亡—革命—建设—改革—复兴五条线。</p>" +
-      '<div class="mrow"><span>史纲已瘦身</span><span>直接背结论</span></div></button>';
-    h += "</div>";
-
-    h += '<div class="home-foot">默认「冲刺模式」：过程性细节与 34 篇文献已收起，需要时可一键切回全量。</div>';
+    h += '<div class="home-foot">纯背诵模式：题目与自测已停用，只保留「背清单 → 对材料 → 串周年」三件事。过程性细节与 34 篇文献默认收起，可一键切回全量。</div>';
 
     h += "</div>";
     $("viewHome").innerHTML = h;
     show("viewHome");                     // 关键：渲染首页时必须切到首页
     $("topTitle").textContent = "政治线";
-    $("topSub").textContent = "五大板块 · 依据 2027 年考试大纲";
+    $("topSub").textContent = "纯背诵 · 依据 2027 年考试大纲";
     $("progressStrip").hidden = true;
     $("actionbar").hidden = true;
     consumeDeepLink();
+  }
+
+  /* ---------------- 背诵统计（首页/侧栏共用） ---------------- */
+  function bsTotal() {
+    var D = window.ZZX_BS;
+    return (D && D.parts) ? bsAll(D).length : 0;
+  }
+  function bsDoneCount() {
+    var D = window.ZZX_BS;
+    if (!D || !D.parts) return 0;
+    var st = bsState(), n = 0;
+    bsAll(D).forEach(function (x) { if (st.mk[x.key] === 2) n++; });
+    return n;
+  }
+  /* 首页主按钮：今天该背/该复习几条，点进去就是背诵中心 */
+  function bsCtaHtml() {
+    var D = window.ZZX_BS;
+    if (!D || !D.parts) return "";
+    var st = bsState(), all = bsAll(D), doing = 0, due = 0;
+    all.forEach(function (x) {
+      var lv = st.mk[x.key] || 0;
+      if (lv === 2) { if (bsDue(st, x.key)) due++; }
+      else doing++;
+    });
+    var done = all.filter(function (x) { return st.mk[x.key] === 2; }).length;
+    var pct = all.length ? Math.round(done / all.length * 100) : 0;
+    var h = '<div class="bs-cta"><div class="bs-cta-top">' +
+      '<b>' + (due ? "今天先复习 " + due + " 条" : (doing ? "还有 " + doing + " 条没背" : "全部背完了")) + "</b>" +
+      '<span>已背 ' + done + " / " + all.length + " · " + pct + "%</span></div>" +
+      '<div class="bs-cta-bar"><i style="width:' + pct + '%"></i></div>' +
+      '<button type="button" class="bs-cta-go" data-home="bs">' +
+      (due ? "开始今日复习" : "打开背诵清单") + " →</button></div>";
+    return h;
+  }
+  /* 间隔重复：会背的按 1/3/7/15/30 天回访；标「模糊」的隔天就来 */
+  var BS_GAP = [1, 3, 7, 15, 30];
+  function bsDue(st, key) {
+    var lv = st.mk[key] || 0;
+    if (!lv) return false;
+    var at = st.at[key] || 0;
+    if (!at) return true;                            // 老数据没有时间戳：算作待复习
+    var d = (Date.now() - at) / 86400000;
+    if (lv === 1) return d >= 1;
+    var rep = Math.min(st.rep[key] || 0, BS_GAP.length - 1);
+    return d >= BS_GAP[rep];
   }
 
   /* 首页「从这里开始」：一个继续按钮 + 一个高频推荐，替代"自己找上次学到哪" */
@@ -1206,7 +1257,7 @@
     }
     if (hot) {
       h += '<button type="button" class="next-row" data-unitgo="' + esc(hot.bid + "|" + hot.unit) + '">' +
-        '<i>高频</i><b>' + esc(hot.uname) + "</b><span>" + esc(hot.name) + " · 真题 " + hot.n + " 道</span></button>";
+        '<i>高频</i><b>' + esc(hot.uname) + "</b><span>" + esc(hot.name) + " · 近年考 " + hot.n + " 次</span></button>";
     }
     return h + "</div>";
   }
@@ -1506,15 +1557,14 @@
     var zt = (window.ZZX_ZT || {})[cur.unit] || {};
     var h = '<details class="umap"><summary>' +
       '<div class="um-t"><b>' + esc(u[2]) + "</b><span>" + items.length + " 条 · 已学 " + done +
-      (zt.n ? " · 真题 " + zt.n + " 道" : "") + "</span></div>" +
+      (zt.n ? " · 考频 " + zt.n : "") + "</span></div>" +
       '<i class="um-x">目录</i></summary><div class="um-list">';
     items.forEach(function (x, i) {
       h += '<button type="button"' + (x.id === cur.id ? ' class="on"' : "") +
         ' data-jump="' + esc(x.id) + '"><i>' + (i + 1) + "</i><span>" + esc(x.title) + "</span>" +
         (p.done && p.done[x.id] ? "<em>已学</em>" : "") + "</button>";
     });
-    if (zt.n) h += '<button type="button" class="um-quiz" data-quiz="u:' + esc(cur.unit) + '">' +
-      "练本单元真题 " + zt.n + " 道 →</button>";
+    if (zt.n) h += '<div class="um-note">本单元近年考 ' + zt.n + " 次 · 已背 " + done + "/" + items.length + "</div>";
     return h + "</div></details>";
   }
 
@@ -1537,7 +1587,7 @@
       var here = (u[0] === cur.unit);
       h += '<button type="button"' + (here ? ' class="on"' : "") + ' data-unitgo="' +
         esc(bid + "|" + u[0]) + '"><i>' + (i + 1) + "</i><span>" + esc(u[2]) + "</span>" +
-        '<u class="um-meta">' + its.length + " 条" + (z.n ? " · 真题 " + z.n : "") +
+        '<u class="um-meta">' + its.length + " 条" + (z.n ? " · 考频 " + z.n : "") +
         (dn ? " · 已学 " + dn : "") + "</u></button>";
     });
     return h + "</div></details>";
@@ -1582,10 +1632,10 @@
       var lvl = hotN >= 25 ? "A" : (hotN >= 12 ? "B" : "C");
       h += '<div class="hot-note lvl-' + lvl + '">' +
         '<b class="hot-lvl">' + lvl + " 级高频</b>" +
-        "<span>本单元 2010—2023 年真题 <b>" + hotN + "</b> 道" +
-        (zt.recent ? " · 近五年 " + zt.recent + " 道" : "") +
+        "<span>本单元近年考 <b>" + hotN + "</b> 次" +
+        (zt.recent ? " · 近五年 " + zt.recent + " 次" : "") +
         (zt.last ? " · 最近 " + zt.last + " 年考过" : "") + "</span>" +
-        '<button type="button" class="hot-go" data-quiz="u:' + esc(it.unit) + '">练这几道</button></div>';
+        '<b class="hot-must">高频必背</b></div>';
     }
     h += unitMapHtml(bd.id, it);
 
@@ -1904,7 +1954,7 @@
           '<div class="pair-sec"><i>③ 三步框架（原理句—材料句—方法句）</i><ol class="pair-frame">' +
           (p.frame || []).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ol></div>" +
           ((p.exams || []).length
-            ? '<div class="pair-sec"><i>④ 真题这么考</i><div class="pair-exams">' +
+            ? '<div class="pair-sec"><i>④ 真题考法</i><div class="pair-exams">' +
               p.exams.map(function (e) {
                 return '<span class="pe"><b>' + e.y + "</b> " + esc(e.t) + ' <em>' + esc(e.hit) + "</em></span>";
               }).join("") + "</div></div>"
@@ -1974,13 +2024,34 @@
      数据与进度都存本地，离线可用；进度单独一个 key，不并入五板块进度。 */
   var BS_FILES = ["js/data/beisong.js"];
   var BS_KEY = "zzx.bs.v1";
+  /* 记忆状态：mk[key] = 1 模糊 / 2 会背；at 上次标记时间；rep 复习轮次（间隔重复用）。
+     老版本只有 done 布尔，读入时自动迁移成 mk=2，历史进度不丢。 */
   function bsState() {
-    try {
-      var s = JSON.parse(localStorage.getItem(BS_KEY) || "{}");
-      return { done: s.done || {}, hide: !!s.hide, part: s.part || 0, filter: s.filter || "all" };
-    } catch (e) { return { done: {}, hide: false, part: 0, filter: "all" }; }
+    var s = {};
+    try { s = JSON.parse(localStorage.getItem(BS_KEY) || "{}") || {}; } catch (e) { s = {}; }
+    var mk = s.mk || {};
+    if (s.done) { Object.keys(s.done).forEach(function (k) { if (s.done[k] && !mk[k]) mk[k] = 2; }); }
+    return { mk: mk, at: s.at || {}, rep: s.rep || {}, hide: !!s.hide, part: s.part || 0, filter: s.filter || "all" };
   }
-  function bsSave(s) { try { localStorage.setItem(BS_KEY, JSON.stringify(s)); } catch (e) {} }
+  function bsSave(s) {
+    try {
+      localStorage.setItem(BS_KEY, JSON.stringify({
+        mk: s.mk, at: s.at, rep: s.rep, hide: s.hide, part: s.part, filter: s.filter
+      }));
+    } catch (e) {}
+  }
+  /* lv=2 会背（按 1/3/7/15/30 天回访）、lv=1 模糊（隔天再来）、0 清空 */
+  function bsMark(key, lv) {
+    var s = bsState();
+    if (lv) {
+      s.mk[key] = lv;
+      s.at[key] = Date.now();
+      s.rep[key] = lv === 2 ? Math.min((s.rep[key] || 0) + 1, BS_GAP.length) : 0;
+    } else {
+      delete s.mk[key]; delete s.at[key]; delete s.rep[key];
+    }
+    bsSave(s); renderBs();
+  }
   function bsAll(D) {
     var out = [];
     (D.parts || []).forEach(function (p) {
@@ -2001,23 +2072,25 @@
     var st = bsState();
     var all = bsAll(D);
     var lv2 = all.filter(function (x) { return x.lv === 2; });
-    var doneN = all.filter(function (x) { return st.done[x.key]; }).length;
+    var doneN = all.filter(function (x) { return st.mk[x.key] === 2; }).length;
+    var fuzzyN = all.filter(function (x) { return st.mk[x.key] === 1; }).length;
+    var dueN = all.filter(function (x) { return bsDue(st, x.key); }).length;
     var pi = Math.min(st.part, D.parts.length - 1);
     var part = D.parts[pi];
 
     var h = '<div class="wrap">';
     h += '<div class="crumb"><span>背诵中心</span><span>·</span><span>' + esc((D.source && D.source.title) || "27 届背诵清单") + "</span></div>";
     h += '<div class="hero-mini"><h1>打开就背，<em>' + all.length + " 条</em></h1>" +
-      '<p>先看线索回忆，再展开核对；勾「已背」自动记住。内容离线可用。</p></div>';
+      '<p>先看线索回忆，再展开核对；✓ 会背、? 模糊，系统记时间并按时提醒复习。</p></div>';
 
     h += '<div class="bs-bar"><div class="bs-prog"><i style="width:' + (all.length ? Math.round(doneN / all.length * 100) : 0) + '%"></i></div>' +
-      '<span>' + doneN + " / " + all.length + " 已背</span></div>";
+      '<span>会背 ' + doneN + " / " + all.length + (fuzzyN ? " · 模糊 " + fuzzyN : "") + "</span></div>";
 
     h += '<div class="bs-tabs">' + D.parts.map(function (p, i) {
       var n = 0, d = 0;
       (p.sections || []).forEach(function (s) {
         (s.groups || []).forEach(function (g) {
-          (g.items || []).forEach(function (it) { n++; if (st.done[it.key]) d++; });
+          (g.items || []).forEach(function (it) { n++; if (st.mk[it.key] === 2) d++; });
         });
       });
       return '<button type="button" class="bs-tab' + (i === pi ? " on" : "") + '" data-bspart="' + i + '">' +
@@ -2028,6 +2101,7 @@
       '<button type="button" class="chip' + (st.filter === "all" ? " on" : "") + '" data-bsfilter="all">全部</button>' +
       '<button type="button" class="chip' + (st.filter === "lv2" ? " on" : "") + '" data-bsfilter="lv2">只看必背 ' + lv2.length + "</button>" +
       '<button type="button" class="chip' + (st.filter === "undone" ? " on" : "") + '" data-bsfilter="undone">未背 ' + (all.length - doneN) + "</button>" +
+      '<button type="button" class="chip chip-due' + (st.filter === "due" ? " on" : "") + '" data-bsfilter="due">今日复习 ' + dueN + "</button>" +
       '<button type="button" class="chip' + (st.hide ? " on" : "") + '" data-bshide="1">' + (st.hide ? "正文已遮住" : "遮住正文") + "</button>" +
       "</div>";
 
@@ -2035,23 +2109,28 @@
       var groups = (s.groups || []).map(function (g) {
         var items = (g.items || []).filter(function (it) {
           if (st.filter === "lv2" && it.lv !== 2) return false;
-          if (st.filter === "undone" && st.done[it.key]) return false;
+          if (st.filter === "undone" && st.mk[it.key] === 2) return false;
+          if (st.filter === "due" && !bsDue(st, it.key)) return false;
           return true;
         });
         if (!items.length) return "";
         return '<div class="bs-group"><div class="bs-group-name">' + esc(g.name) + "</div>" +
           items.map(function (it) {
-            var on = !!st.done[it.key];
-            return '<div class="bs-item' + (on ? " is-done" : "") + '">' +
+            var lv = st.mk[it.key] || 0;
+            var cls = lv === 2 ? " is-done" : (lv === 1 ? " is-fuzzy" : "");
+            return '<div class="bs-item' + cls + '">' +
               '<div class="bs-top">' +
               '<span class="bs-no">' + (it.no < 10 ? "0" : "") + it.no + "</span>" +
               '<b class="bs-title">' + esc(it.title) + "</b>" +
               (it.lv === 2 ? '<span class="bs-lv">必背</span>' : "") +
-              '<button type="button" class="bs-check' + (on ? " on" : "") + '" data-bsdone="' + it.key + '" aria-label="标记已背">' + (on ? "✓" : "") + "</button>" +
+              '<button type="button" class="bs-fuzzy' + (lv === 1 ? " on" : "") + '" data-bsq="' + it.key + '" data-lv="1" aria-label="标为模糊">?</button>' +
+              '<button type="button" class="bs-check' + (lv === 2 ? " on" : "") + '" data-bsq="' + it.key + '" data-lv="2" aria-label="标为会背">' + (lv === 2 ? "✓" : "") + "</button>" +
               "</div>" +
               (it.clue ? '<div class="bs-clue"><i>线索</i>' + esc(it.clue) + "</div>" : "") +
               '<div class="bs-body' + (st.hide ? " bs-hidden" : "") + '">' +
-              (it.body || []).map(function (x) { return "<p>" + esc(x) + "</p>"; }).join("") +
+              (it.body || []).map(function (x, xi) {
+                return '<p data-bsrev="' + it.key + "|" + xi + '">' + esc(x) + "</p>";
+              }).join("") +
               "</div>" +
               (it.method ? '<div class="bs-method"><i>方法论</i>' + esc(it.method) + "</div>" : "") +
               (it.why ? '<div class="bs-why"><i>陷阱</i>' + esc(it.why) + "</div>" : "") +
@@ -2065,7 +2144,7 @@
       h += '<div class="empty">这个筛选下没有条目，换个筛选看看</div>';
     }
     h += '<div class="home-foot">数据来源：' + esc(((D.source && D.source.file) || "27 届背诵清单中心自研（终版）")) +
-      " · 重点分级按真题复现与考纲固定搭配判断</div>";
+      " · 重点分级按考纲固定搭配与近年考频判断</div>";
     h += "</div>";
 
     var bsSc = $("viewBs").scrollTop, bsFresh = $("viewBs").hidden || !$("viewBs").innerHTML;
@@ -2083,6 +2162,8 @@
     closeSidebar();
     if (v === "pair") return loadExtra(PAIR_FILES).then(function () { renderPair("", true); });
     if (v === "anniv") return loadExtra(ANNIV_FILES).then(function () { renderAnniv(); });
+    /* 背诵数据已随首屏加载，这里不再重复拉一次 */
+    if (window.ZZX_BS) { renderBs(); return; }
     return loadExtra(BS_FILES).then(function () { renderBs(); });
   }
 
@@ -3213,13 +3294,21 @@
       if (bsf) { var s2 = bsState(); s2.filter = bsf.getAttribute("data-bsfilter"); bsSave(s2); renderBs(); return; }
       var bsh = up("[data-bshide]");
       if (bsh) { var s3 = bsState(); s3.hide = !s3.hide; bsSave(s3); renderBs(); return; }
+      /* 逐句揭示优先：点到某一段就只露那一段（比整块揭开更接近主动回忆）；
+         点到正文空白处再整块揭开兜底 */
+      var bsr = up("[data-bsrev]");
+      if (bsr) {
+        var wrap4 = bsr.closest(".bs-body");
+        if (wrap4 && wrap4.classList.contains("bs-hidden")) { bsr.classList.toggle("is-reveal"); return; }
+      }
       var bb = up(".bs-body");
       if (bb && bb.classList.contains("bs-hidden")) { bb.classList.remove("bs-hidden"); return; }
-      var bsd = up("[data-bsdone]");
-      if (bsd) {
-        var s4 = bsState(), no4 = bsd.getAttribute("data-bsdone");
-        if (s4.done[no4]) delete s4.done[no4]; else s4.done[no4] = 1;
-        bsSave(s4); renderBs();
+      var bsq = up("[data-bsq]");
+      if (bsq) {
+        var key4 = bsq.getAttribute("data-bsq");
+        var lv4 = parseInt(bsq.getAttribute("data-lv"), 10) || 2;
+        var cur4 = bsState().mk[key4] || 0;
+        bsMark(key4, cur4 === lv4 ? 0 : lv4);   // 再点一次取消
         return;
       }
       var b = up("[data-board]");
@@ -3604,9 +3693,7 @@
       renderHome();
       var missing = BOARDS.length - okBoards;
       if (missing) toast(missing + " 个板块的数据未加载成功，可重试或稍后再打开");  // 部分失败：明确告知
-      idleRun(function () {
-        loadQuiz().then(function () { syncQuizTotal(); }).catch(function () {});
-      });
+      /* 纯背诵模式：题库（自测 543 + 真题 462，约 272KB）不再预加载 */
     }).catch(function (err) {
       settled = true; clearTimeout(guard);
       try { indexAll(); renderSidebar(); } catch (e2) {}

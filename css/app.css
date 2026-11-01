@@ -960,3 +960,39 @@ section.view.view-enter{animation:viewIn .18s ease-out both}
 .bs-item,.pair-card,.annv-card,.case-card{content-visibility:auto;contain-intrinsic-size:auto 160px}
 /* 板块级框架里的单元小字（条数/真题/已学） */
 .um-list button>u{font-style:normal;text-decoration:none;font-size:10.5px;color:var(--fg-3);flex:none;margin-left:6px}
+
+/* ================= 纯背诵模式（题目入口停用后的配套样式） ================= */
+
+/* 首页主按钮：今天该背/该复习几条 */
+.bs-cta{margin:10px 0 4px;padding:14px 15px;border-radius:var(--r);border:1px solid var(--line);
+  background:var(--bg-elevated);box-shadow:var(--shadow-sm)}
+.bs-cta-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0 0 9px}
+.bs-cta-top b{font-size:15px;color:var(--fg);line-height:1.4}
+.bs-cta-top span{font-size:11.5px;color:var(--fg-3);flex:none;font-variant-numeric:tabular-nums}
+.bs-cta-bar{height:5px;border-radius:5px;background:var(--line);overflow:hidden;margin:0 0 11px}
+.bs-cta-bar i{display:block;height:100%;background:var(--accent);border-radius:5px}
+.bs-cta-go{width:100%;padding:11px;border:0;border-radius:var(--r-sm);background:var(--accent);
+  color:#fff;font-size:14px;font-weight:650}
+
+/* 掌握度三档：? 模糊 */
+.bs-fuzzy{flex:0 0 auto;width:26px;height:26px;border-radius:8px;border:1.5px dashed var(--line);
+  background:var(--bg-sunken);font-size:12px;line-height:1;color:var(--fg-3);display:grid;place-items:center;margin-left:2px}
+.bs-fuzzy.on{border-style:solid;border-color:#c78a2b;background:#c78a2b;color:#fff}
+.bs-item.is-fuzzy{border-color:rgba(199,138,43,.4)}
+.bs-item.is-fuzzy .bs-title{color:var(--fg-2)}
+
+/* 今日复习筛选 */
+.chip-due.on{background:#c78a2b;border-color:#c78a2b;color:#fff}
+.chip-due:not(.on){color:#a8712a}
+
+/* 遮住正文时：点哪句露哪句（单段揭示比整体揭开更接近主动回忆） */
+.bs-body.bs-hidden p{cursor:pointer}
+.bs-body.bs-hidden p.is-reveal{color:var(--fg) !important;background:var(--bg-hover);
+  border-radius:6px;box-shadow:0 0 0 4px var(--bg-hover)}
+
+/* 单元目录底部提示（原「练本单元真题」位置） */
+.um-note{padding:9px 13px;font-size:11.5px;color:var(--fg-3);border-top:1px solid var(--line-soft);text-align:center}
+
+/* 高频考点标记（原「练这几道」按钮位置） */
+.hot-note .hot-must{margin-left:auto;flex:none;padding:3px 9px;border-radius:999px;font-size:11px;
+  background:var(--accent-soft);color:var(--accent);font-weight:650}
