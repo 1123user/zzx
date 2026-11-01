@@ -3881,6 +3881,20 @@
       }).catch(function (e) {
         var m = (e && e.message) || "登录失败";
         var have = Object.keys(readAccounts().users);
+        /* 本机一个账号都没有：不再让人「先去注册」（那正是「一直登不上」的死结）。
+           本地账号只是本机的一把锁，没有服务端要校验，直接用它输的名字与密码建号即可。 */
+        if (!have.length && !/密码不正确/.test(m)) {
+          say("正在本机建立账号…");
+          registerAccount(name, pw).then(function (u) {
+            rememberName(u);
+            setSession(u, remember);
+            toast("已在本机建好账号「" + u + "」，以后用这个用户名和密码打开即可");
+            signIn(u);
+          }).catch(function (e2) {
+            say((e2 && e2.message) || "账号创建失败");
+          });
+          return;
+        }
         if (/^NONE:/.test(m)) {
           var wantName = m.slice(5).trim();
           m = "本机没有「" + wantName + "」的数据（可能是换过设备或清过浏览器数据）。" +
@@ -3889,10 +3903,8 @@
         } else if (/密码不正确/.test(m)) {
           m = "密码不正确。想不起来可以用下方「忘了密码」在本机重置（账号与进度都在，不用重新注册）。";
         } else if (/不存在/.test(m)) {
-          m = have.length
-            ? "本机没有「" + String(name).trim() + "」这个账号。已有的账号：" + have.join("、") +
-              "（点上面的账号名自动填入）。若账号确实丢了，用「导出学习数据」把进度带走后重新注册即可。"
-            : "本机还没有任何账号：点下方「注册新账号」创建（只需一次）。";
+          m = "本机没有「" + String(name).trim() + "」这个账号。已有账号：" + have.join("、") +
+            "（点上面的账号名自动填入）。想换个名字，用下方「注册新账号」创建一次即可。";
         }
         say(m);
       });
