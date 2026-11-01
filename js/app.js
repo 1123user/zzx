@@ -1049,11 +1049,27 @@
     setTimeout(function () { dom.scrim.hidden = true; }, 260);
   }
 
+  /* 视图切换：①记住每个视图的滚动位置，切回时原地续读（不再"回到顶部一片空白"）
+     ②新视图 180ms 淡入，遮住硬切瞬间的黑/白闪（也就是用户说的"黑屏、发雾"） */
+  var VIEWS = ["viewHome", "viewStudy", "viewQuiz", "viewLine", "viewCase", "viewEssay", "viewAnalysis", "viewAuth", "viewPair", "viewAnniv", "viewBs"];
+  var viewScroll = {};
   function show(view) {
     closeSidebar(); // 任何视图切换都收起侧边栏，避免浮层压住内容
-    ["viewHome", "viewStudy", "viewQuiz", "viewLine", "viewCase", "viewEssay", "viewAnalysis", "viewAuth", "viewPair", "viewAnniv", "viewBs"].forEach(function (v) { $(v).hidden = true; });
-    $(view).hidden = false;
+    var cur = null;
+    for (var i = 0; i < VIEWS.length; i++) { if (!$(VIEWS[i]).hidden) { cur = $(VIEWS[i]); break; } }
+    if (cur && cur.id === view) return;               // 同一视图不重复渲染
+    if (cur) viewScroll[cur.id] = cur.scrollTop;
+    VIEWS.forEach(function (v) { $(v).hidden = true; });
+    var el = $(view);
+    el.hidden = false;
+    var y = viewScroll[view];
+    el.scrollTop = (typeof y === "number" && y > 0) ? y : 0;
+    el.classList.remove("view-enter");
+    void el.offsetWidth;                              // 强制重排，保证动画可重放
+    el.classList.add("view-enter");
   }
+  /* 主动导航（进板块/换板块/做题）一律回到顶部，不继承上次位置 */
+  function resetViewScroll(id) { viewScroll[id] = 0; }
 
   /* ---------------- 侧边栏 ---------------- */
   function renderSidebar() {
@@ -1119,7 +1135,10 @@
       '<div class="hero-stats">' +
       "<div><b>" + tot + "</b><span>考点</span></div>" +
       '<div><b id="heroQuizN">' + (quizLoaded() ? quizAll().length : "—") + "</b><span>自测题</span></div>" +
+      '<div><b>462</b><span>历年真题</span></div>' +
       "</div></div>";
+
+    h += homeNextHtml();
 
     h += '<div class="sec-title">五大板块</div><div class="cards">';
     h += BOARDS.map(function (b) {
@@ -1165,6 +1184,49 @@
     $("progressStrip").hidden = true;
     $("actionbar").hidden = true;
     consumeDeepLink();
+  }
+
+  /* 首页「从这里开始」：一个继续按钮 + 一个高频推荐，替代"自己找上次学到哪" */
+  function homeNextHtml() {
+    var cont = null;
+    BOARDS.forEach(function (b) {
+      var p = progress[b.id];
+      if (!p || !p.current) return;
+      var d = getBoard(b.id); if (!d) return;
+      var it = (d.items || []).filter(function (x) { return x.id === p.current; })[0];
+      if (!it) return;
+      cont = { bid: b.id, name: b.name, title: it.title, at: p.at || 0 };
+    });
+    var hot = bestHotUnit();
+    if (!cont && !hot) return "";
+    var h = '<div class="sec-title">从这里开始</div><div class="next-card">';
+    if (cont) {
+      h += '<button type="button" class="next-row" data-open="' + esc(cont.bid) + '">' +
+        '<i>继续</i><b>' + esc(cont.name) + "</b><span>" + esc(cont.title) + "</span></button>";
+    }
+    if (hot) {
+      h += '<button type="button" class="next-row" data-unitgo="' + esc(hot.bid + "|" + hot.unit) + '">' +
+        '<i>高频</i><b>' + esc(hot.uname) + "</b><span>" + esc(hot.name) + " · 真题 " + hot.n + " 道</span></button>";
+    }
+    return h + "</div>";
+  }
+  /* 未学完单元里"真题最多 × 近年权重"最高的那个：先把高频拿下 */
+  function bestHotUnit() {
+    var Z = window.ZZX_ZT || {}, best = null;
+    BOARDS.forEach(function (b) {
+      var d = getBoard(b.id); if (!d) return;
+      var p = progress[b.id] || { done: {} };
+      (d.units || []).forEach(function (u) {
+        var z = Z[u[0]]; if (!z || !z.n) return;
+        var items = (d.items || []).filter(function (x) { return x.unit === u[0] && inMainline(x, b.id); });
+        if (!items.length) return;
+        var undone = items.filter(function (x) { return !(p.done && p.done[x.id]); });
+        if (!undone.length) return;
+        var score = z.n * 10 + (z.recent || 0) * 8 + undone.length * 2;
+        if (!best || score > best.score) best = { bid: b.id, name: b.name, unit: u[0], uname: u[2], n: z.n, score: score };
+      });
+    });
+    return best;
   }
 
   /* 主屏图标长按快捷方式：?go=bs|pair|anniv 直接进对应视图 */
@@ -1222,6 +1284,26 @@
     ? function (fn) { window.requestIdleCallback(fn, { timeout: 1500 }); }
     : function (fn) { setTimeout(fn, 240); };
 
+  /* 配图分级：正文里用 480px 缩略图（img/pol/t/，单张约 14KB），
+     点开大图才拉原图（data-full）。首屏图片体积从 21MB 降到 4.4MB，弱网不再空白断档。
+     缩略图缺失时自动回退原图（markShots 里处理），不会出现"永远加载不出来"。 */
+  function thumbOf(src) {
+    if (!src || typeof src !== "string") return src;
+    if (src.indexOf("img/pol/t/") === 0) return src;
+    if (src.indexOf("img/pol/") !== 0) return src;
+    return src.replace("img/pol/", "img/pol/t/");
+  }
+  /* 原始宽高：写进 img 的 width/height，浏览器提前留出正确高度 */
+  function imgSizeOf(src) {
+    var m = window.ZZX_IMGSIZE || {};
+    var v = m[src];
+    if (!v || v.length < 2) return null;
+    return { w: v[0], h: v[1] };
+  }
+  function imgAttrs(src) {
+    var sz = imgSizeOf(src);
+    return sz ? ' width="' + sz.w + '" height="' + sz.h + '"' : "";
+  }
   function imgSrcsOf(it) {
     if (!it) return [];
     var out = [];
@@ -1235,6 +1317,8 @@
   }
   function preload(src) {
     if (state.imgMode !== "on" || !src || preloaded[src]) return;
+    src = thumbOf(src);
+    if (preloaded[src]) return;
     var im = new Image();
     im.decoding = "async";
     try { im.fetchPriority = "low"; } catch (e) {}
@@ -1278,6 +1362,13 @@
           if (fig && fig.classList) { fig.classList.remove("is-broken"); fig.classList.remove("is-loading"); }
         }
         function bad() {
+          /* 一级回退：缩略图缺失/损坏 → 换原图再试一次（老数据、新增配图都能兜住） */
+          var th = im.getAttribute("data-thumb"), full = im.getAttribute("data-full");
+          if (th && full && im.getAttribute("src") === th) {
+            im.removeAttribute("data-thumb");
+            im.src = full;
+            return;
+          }
           im.classList.remove("is-pending"); im.classList.add("img-broken");
           if (fig && fig.classList) { fig.classList.remove("is-loading"); fig.classList.add("is-broken"); }
         }
@@ -1359,8 +1450,9 @@
   function renderFig(b) {
     if (state.imgMode !== "on") return "";
     if (!b.v) return "";
-    return '<figure class="b-fig"><img class="shot" src="' + esc(b.v) + '" alt="' + esc(b.cap || "") +
-      '" loading="lazy" decoding="async" data-full="' + esc(b.v) + '" data-cap="' + esc(b.cap || "") + '">' +
+    return '<figure class="b-fig"><img class="shot" src="' + esc(thumbOf(b.v)) + '" alt="' + esc(b.cap || "") +
+      '" loading="lazy" decoding="async"' + imgAttrs(b.v) + ' data-thumb="' + esc(thumbOf(b.v)) +
+      '" data-full="' + esc(b.v) + '" data-cap="' + esc(b.cap || "") + '">' +
       '<figcaption>' + esc(b.cap || "") + "</figcaption></figure>";
   }
   function renderBlock(b) {
@@ -1400,6 +1492,57 @@
     }
   }
 
+  /* 单元目录：把「本单元还有哪些考点」摊开，代替盲翻上一页/下一页。
+     已学条目打勾、当前条目高亮，底部直通本单元真题。 */
+  function unitMapHtml(bid, cur) {
+    var d = getBoard(bid); if (!d) return "";
+    var u = (d.units || []).filter(function (x) { return x[0] === cur.unit; })[0];
+    if (!u) return "";
+    var items = (d.items || []).filter(function (x) { return x.unit === cur.unit && inMainline(x, bid); });
+    if (items.length < 2) return boardMapHtml(bid, cur);  // 单条单元：改给板块级框架，仍有"目录感"
+    var p = progress[bid] || { done: {} };
+    var done = 0;
+    items.forEach(function (x) { if (p.done && p.done[x.id]) done++; });
+    var zt = (window.ZZX_ZT || {})[cur.unit] || {};
+    var h = '<details class="umap"><summary>' +
+      '<div class="um-t"><b>' + esc(u[2]) + "</b><span>" + items.length + " 条 · 已学 " + done +
+      (zt.n ? " · 真题 " + zt.n + " 道" : "") + "</span></div>" +
+      '<i class="um-x">目录</i></summary><div class="um-list">';
+    items.forEach(function (x, i) {
+      h += '<button type="button"' + (x.id === cur.id ? ' class="on"' : "") +
+        ' data-jump="' + esc(x.id) + '"><i>' + (i + 1) + "</i><span>" + esc(x.title) + "</span>" +
+        (p.done && p.done[x.id] ? "<em>已学</em>" : "") + "</button>";
+    });
+    if (zt.n) h += '<button type="button" class="um-quiz" data-quiz="u:' + esc(cur.unit) + '">' +
+      "练本单元真题 " + zt.n + " 道 →</button>";
+    return h + "</div></details>";
+  }
+
+  /* 板块级框架：单元 → 条数/真题数，点单元直接进去。
+     对标二轮复习的「章节目录」，让用户随时能看到自己在整本书的哪一格。 */
+  function boardMapHtml(bid, cur) {
+    var d = getBoard(bid); if (!d) return "";
+    var units = d.units || [];
+    if (units.length < 2) return "";
+    var p = progress[bid] || { done: {} };
+    var Z = window.ZZX_ZT || {};
+    var h = '<details class="umap"><summary><div class="um-t"><b>' + esc(d.name || "本板块") +
+      " 框架</b><span>" + units.length + " 个单元 · 共 " + (d.items || []).length + " 条考点</span></div>" +
+      '<i class="um-x">目录</i></summary><div class="um-list">';
+    units.forEach(function (u, i) {
+      var its = (d.items || []).filter(function (x) { return x.unit === u[0] && inMainline(x, bid); });
+      var dn = 0;
+      its.forEach(function (x) { if (p.done && p.done[x.id]) dn++; });
+      var z = Z[u[0]] || {};
+      var here = (u[0] === cur.unit);
+      h += '<button type="button"' + (here ? ' class="on"' : "") + ' data-unitgo="' +
+        esc(bid + "|" + u[0]) + '"><i>' + (i + 1) + "</i><span>" + esc(u[2]) + "</span>" +
+        '<u class="um-meta">' + its.length + " 条" + (z.n ? " · 真题 " + z.n : "") +
+        (dn ? " · 已学 " + dn : "") + "</u></button>";
+    });
+    return h + "</div></details>";
+  }
+
   function renderStudy() {
     var list = filteredItems();
     var it = list[state.index];
@@ -1431,10 +1574,20 @@
       h += '<div class="tier-bar"><span>全量模式：含已下线细节与全部文献</span>' +
         '<button type="button" class="tier-btn" data-full="0">回到冲刺主线</button></div>';
     }
-    var hotN = ((window.ZZX_TIER || {}).hot || {})[it.unit];
+    /* 真题贴合度：单元级命中（总数/近五年/最近年份）+ 一键练本单元真题。
+       数据来自 quiz-zhenti.js 的 462 道真题统计，考点与真题由此直接咬合。 */
+    var zt = (window.ZZX_ZT || {})[it.unit] || {};
+    var hotN = zt.n || ((window.ZZX_TIER || {}).hot || {})[it.unit] || 0;
     if (hotN) {
-      h += '<div class="hot-note">本单元 2010—2023 年真题 <b>' + hotN + "</b> 道 · 选择题口径</div>";
+      var lvl = hotN >= 25 ? "A" : (hotN >= 12 ? "B" : "C");
+      h += '<div class="hot-note lvl-' + lvl + '">' +
+        '<b class="hot-lvl">' + lvl + " 级高频</b>" +
+        "<span>本单元 2010—2023 年真题 <b>" + hotN + "</b> 道" +
+        (zt.recent ? " · 近五年 " + zt.recent + " 道" : "") +
+        (zt.last ? " · 最近 " + zt.last + " 年考过" : "") + "</span>" +
+        '<button type="button" class="hot-go" data-quiz="u:' + esc(it.unit) + '">练这几道</button></div>';
     }
+    h += unitMapHtml(bd.id, it);
 
     h += '<div class="item-head">';
     h += '<span class="tagline k-' + esc(KIND_LABEL[it.kind] ? it.kind : "topic") + '">' + (KIND_LABEL[it.kind] || "考点") + "</span>";
@@ -1458,8 +1611,10 @@
     }
 
     if (it.img && state.imgMode === "on") {
-      h += '<figure class="b-fig"><img class="shot" src="' + esc(it.img) + '" alt="' + esc(it.imgCap || "") +
-        '" loading="lazy" decoding="async" data-full="' + esc(it.img) + '" data-cap="' + esc(it.imgCap || "") + '">' +
+      h += '<figure class="b-fig' + (imgSizeOf(it.img) ? " has-ratio" : "") + '"><img class="shot" src="' +
+        esc(thumbOf(it.img)) + '" alt="' + esc(it.imgCap || "") +
+        '" loading="lazy" decoding="async"' + imgAttrs(it.img) + ' data-thumb="' + esc(thumbOf(it.img)) +
+        '" data-full="' + esc(it.img) + '" data-cap="' + esc(it.imgCap || "") + '">' +
         '<figcaption>' + esc(it.imgCap || "") + "</figcaption></figure>";
     }
 
@@ -1469,6 +1624,7 @@
     $("viewStudy").innerHTML = h;
     show("viewStudy");
     $("viewStudy").scrollTop = 0;
+    resetViewScroll("viewStudy");   // 进新板块一律从顶部开始，不被上一次的续读位置带偏
     $("topTitle").textContent = it.title;
     $("topSub").textContent = bd.short + " · " + (it.dateLabel || KIND_LABEL[it.kind] || "");
     var p = subProgress(bd.id);
@@ -1760,7 +1916,7 @@
 
     $("viewPair").innerHTML = h;
     show("viewPair");
-    if (forceTop || !q) $("viewPair").scrollTop = 0;
+    if (forceTop || !q) { $("viewPair").scrollTop = 0; resetViewScroll("viewPair"); }
     $("topTitle").textContent = "原理 × 材料";
     $("topSub").textContent = "背一句 → 认一句材料 → 套三步框架";
     $("progressStrip").hidden = true;
@@ -1804,6 +1960,7 @@
     $("viewAnniv").innerHTML = h;
     show("viewAnniv");
     $("viewAnniv").scrollTop = 0;
+    resetViewScroll("viewAnniv");
     $("topTitle").textContent = "2026 整周年";
     $("topSub").textContent = "24 个节点 · 一句结论直接背";
     $("progressStrip").hidden = true;
@@ -2051,6 +2208,18 @@
     if (filter.indexOf("u:") === 0) return q.u === filter.slice(2);
     return q.b === filter;
   }
+  /* 单元 → 该单元第一条考点（真题解析里的"回考点"入口用） */
+  function firstItemOfUnit(uid) {
+    if (!uid) return null;
+    var hit = null;
+    BOARDS.some(function (b) {
+      var d = getBoard(b.id); if (!d) return false;
+      var it = (d.items || []).filter(function (x) { return x.unit === uid; })[0];
+      if (it) { hit = it.id; return true; }
+      return false;
+    });
+    return hit;
+  }
   function startQuiz(filter, n) {
     Promise.all([loadQuiz(), loadAll()]).then(function (r) {
       var bank = r[0] || [];
@@ -2118,7 +2287,11 @@
   function quizJumpHtml(q) {
     var acts = "";
     if (q.j && findItem(q.j)) {
-      acts += '<button type="button" data-jump="' + esc(q.j) + '"><i>考点</i>去学这道题的考点</button>';
+      /* 真题数据只标到单元，没有逐题考点 id：退一步跳到该单元第一条考点，
+         保证"做错 → 回考点"这条路永远走得通（而不是没有入口） */
+      var jid = q.j || firstItemOfUnit(q.u);
+      if (jid) acts += '<button type="button" data-jump="' + esc(jid) + '"><i>考点</i>' +
+        (q.j ? "去学这道题的考点" : "去学本单元考点") + "</button>";
     }
     if (q.b && q.u) {
       acts += '<button type="button" data-unitgo="' + esc(q.b + "|" + q.u) + '"><i>章节</i>去学' + esc(unitNameOf(q.u) || bName(q.b)) + "</button>";
