@@ -6,29 +6,29 @@
       activate 时清理旧版本缓存并通知页面「新版本已就绪」；
    4) 预缓存与所有网络请求均有兜底，任何一步失败都不会把资源请求打死。
 */
-const CACHE = 'zzx-shell-v31';
+const CACHE = 'zzx-shell-v32';
 /* 配图为 WebP，缓存名与内容版本对应；改名会自动清理旧图片缓存 */
 const RUNTIME = 'zzx-runtime-v14';
 
 const SHELL = [
   './',
   './index.html',
-  './css/app.css',
-  './js/theme.js',
-  './js/pwa.js',
-  './js/app.js',
+  './css/app.css?v=32',
+  './js/theme.js?v=32',
+  './js/pwa.js?v=32',
+  './js/app.js?v=32',
   './js/data/sg.js',
   './js/data/sgdoc.js',
   './js/data/mao.js',
   './js/data/my.js',
   './js/data/sf.js',
   './js/data/xc.js',
-  './js/data/imgsize.js',
-  './js/data/zhenti-stat.js',
-  './js/data/tier.js',
+  './js/data/imgsize.js?v=32',
+  './js/data/zhenti-stat.js?v=32',
+  './js/data/tier.js?v=32',
   './js/data/my-pair.js',
   './js/data/sg-anniv.js',
-  './js/data/beisong.js',
+  './js/data/beisong.js?v=32',
   './icon.svg',
   './icons/icon-180.png?v=2',
   './icons/icon-192.png?v=2',
@@ -137,17 +137,38 @@ self.addEventListener('fetch', (e) => {
   try { url = new URL(req.url); } catch (err) { return; }
   if (url.origin !== self.location.origin) return;
 
-  // 页面导航：缓存秒出（后台校验更新）；无缓存才等网络；再不行给离线页
+  /* 页面导航：网络优先（1.8 秒没回来就用缓存）。
+     以前是「缓存优先 + 后台更新」，结果是每次打开都慢一拍：发版后用户看到的仍是上一版，
+     修好的问题「一直不生效」，只能靠开两次或删掉重装。 */
   if (req.mode === 'navigate') {
-    const net = revalidate(url, req, CACHE, './index.html', true);
-    e.waitUntil(net.catch(function () {}));
-    e.respondWith(
-      caches.match('./index.html').then(function (cached) {
-        /* 只认真正的 HTML：万一旧版本曾把非页面内容缓存进来，这里自动跳过并改走网络 */
-        if (cached && (cached.headers.get('content-type') || '').toLowerCase().indexOf('text/html') >= 0) return cached;
-        return net.then((r) => r || caches.match(req)).then((r) => r || offlineResponse());
-      }).catch(function () { return offlineResponse(); })
-    );
+    const net = fetch(netRequest(url.href, true)).then(function (res) {
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (ct.indexOf('text/html') >= 0) safePut(CACHE, './index.html', res.clone());
+      return res;
+    });
+    const picked = new Promise(function (resolve) {
+      let settled = false;
+      const timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        caches.match('./index.html').then(function (c) {
+          if (c && (c.headers.get('content-type') || '').toLowerCase().indexOf('text/html') >= 0) resolve(c);
+          else resolve(net);
+        }).catch(function () { resolve(net); });
+      }, 1800);
+      net.then(function (res) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); resolve(res);
+      }).catch(function () {
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        caches.match('./index.html').then(function (c) {
+          if (c && (c.headers.get('content-type') || '').toLowerCase().indexOf('text/html') >= 0) return resolve(c);
+          caches.match(req).then(function (r2) { resolve(r2 || offlineResponse()); });
+        }).catch(function () { resolve(offlineResponse()); });
+      });
+    });
+    e.respondWith(picked);
     return;
   }
 
@@ -166,9 +187,10 @@ self.addEventListener('fetch', (e) => {
   // 代码与数据：缓存秒出（后台校验更新），无缓存才等网络
   const fresh = revalidate(url, req, CACHE);
   e.waitUntil(fresh.catch(function () {}));
+  const bare = new URL(url.pathname, self.location.origin).href;   // 去掉 ?v= 的同名资源
   e.respondWith(
     caches.match(req)
-      .then((cached) => cached || fresh)
+      .then((cached) => cached || caches.match(bare) || fresh)
       .catch(function () { return fresh; })
   );
 });
