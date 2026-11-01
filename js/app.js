@@ -582,19 +582,53 @@
       return name;
     });
   }
+  /* 老账号可能是「WebCrypto 不可用」时注册的（h 散列，如早期用局域网 IP / file:// 打开）。
+     现在换成 https 打开，登录只会算 p2 散列，永远对不上 —— 于是「密码没错却登不进去」。
+     这里两种都验，命中旧格式就顺手升级成 PBKDF2，以后不再有这个问题。 */
+  /* 忘了密码不用重新注册：本机数据本来就归本机用户，验证「账号存在」即可换新密码。
+     重置后旧密码立即失效，学习进度 / 错题库原封不动。 */
+  function resetPassword(name, pw) {
+    name = String(name || "").trim();
+    var a = readAccounts(), u = a.users[name];
+    if (!u) return Promise.reject(new Error("本机没有这个账号"));
+    if (String(pw || "").length < 4) return Promise.reject(new Error("新密码至少 4 位"));
+    if (String(pw || "").length > 64) return Promise.reject(new Error("新密码最多 64 位"));
+    var salt = newSalt();
+    return hashPassword(pw, salt, PBKDF2_ITER).then(function (h) {
+      u.salt = salt; u.hash = h; u.iter = PBKDF2_ITER; u.resetAt = Date.now();
+      a.users[name] = u;
+      writeAccounts(a);
+      return name;
+    });
+  }
+
   function loginAccount(name, pw) {
     name = String(name || "").trim();
-    var u = readAccounts().users[name];
+    var a = readAccounts(), u = a.users[name];
     if (!u) return Promise.reject(new Error("用户名不存在，请先注册"));
-    return hashPassword(pw, u.salt, u.iter || PBKDF2_ITER).then(function (h) {
-      if (h !== u.hash) throw new Error("密码不正确");
-      return name;
+    var iter = u.iter || PBKDF2_ITER;
+    return hashPassword(pw, u.salt, iter).then(function (h) {
+      if (h === u.hash) return name;
+      var legacy = "h" + hashStr(u.salt + "|" + pw + "|" + iter);
+      if (legacy === u.hash) {              // 旧散列通过：升级为 PBKDF2
+        u.hash = h; u.iter = PBKDF2_ITER; u.upgradedAt = Date.now();
+        a.users[name] = u;
+        writeAccounts(a);
+        return name;
+      }
+      throw new Error("密码不正确");
     });
   }
   /* 会话：记住登录状态（存库）；不勾选时只放在 sessionStorage，关闭即失效 */
   function setSession(name, remember) {
-    if (remember) setRec("session", { user: name, at: Date.now() });
-    else delRec("session");
+    if (remember) {
+      setRec("session", { user: name, at: Date.now() });
+      /* 双写一份到 localStorage：IndexedDB 被系统清理/隐私模式时仍能免密进入 */
+      try { localStorage.setItem("zzx.session.v1", JSON.stringify({ user: name, at: Date.now() })); } catch (e) {}
+    } else {
+      delRec("session");
+      try { localStorage.removeItem("zzx.session.v1"); } catch (e) {}
+    }
     try {
       if (remember) sessionStorage.removeItem(SSESS_KEY);
       else sessionStorage.setItem(SSESS_KEY, JSON.stringify({ user: name, at: Date.now() }));
@@ -3262,6 +3296,13 @@
         var tab = el.closest ? el.closest("[data-auth]") : null;
         if (tab) { authTab = tab.getAttribute("data-auth"); renderAuth(""); return; }
         if (el.closest && el.closest("#authGo")) { authSubmit(); return; }
+        var au = el.closest ? el.closest("[data-authuser]") : null;
+        if (au) {
+          var nm = au.getAttribute("data-authuser") || "";
+          if ($("authName")) $("authName").value = nm;
+          if ($("authPw")) { try { $("authPw").focus(); } catch (e) {} }
+          return;
+        }
         if (el.closest && el.closest("#authSkip")) {
           if (confirm("沿用本机已有进度，不创建账号。之后随时可在侧边栏注册并登录。")) signIn(null);
           return;
@@ -3650,33 +3691,44 @@
     var a = readAccounts();
     var names = Object.keys(a.users);
     var hasLegacy = !names.length && (localStorage.getItem("zzx.progress.v1") || localStorage.getItem("zzx.wrong.v1"));
-    var isReg = authTab === "reg";
+    var isReg = authTab === "reg", isReset = authTab === "reset";
+    var twoPw = isReg || isReset;
     var h = '<div class="auth-wrap"><div class="auth-card">' +
       '<div class="hero" style="padding:0 0 14px;border-bottom:0;margin:0">' +
-      '<h1 style="font-size:21px">' + (isReg ? "注册新账号" : "登录") + "<em>·</em>政治线</h1>" +
+      '<h1 style="font-size:21px">' + (isReg ? "注册新账号" : (isReset ? "重置密码" : "登录")) + "<em>·</em>政治线</h1>" +
       "<p>" + (isReg
         ? "设置用户名与密码，之后的学习进度就记在这个账号名下。"
-        : "输入用户名与密码，进入你自己的学习进度（已掌握、错题库、薄弱分析）。") +
+        : (isReset
+          ? "账号还在，只是密码忘了：输入用户名和新密码即可，学习进度、错题库都不受影响。"
+          : "输入用户名与密码，进入你自己的学习进度（背诵位置、已学考点、错题库）。")) +
       "</p></div>" +
       '<div class="auth-field"><label>用户名</label><input id="authName" type="text" autocomplete="username" autocapitalize="off" placeholder="例如：kaoyan" value="' + esc(lastName()) + '"></div>' +
-      '<div class="auth-field"><label>密码</label><input id="authPw" type="password" autocomplete="' + (isReg ? "new-password" : "current-password") + '" placeholder="' + (isReg ? "至少 4 位" : "请输入密码") + '"></div>' +
-      (isReg ? '<div class="auth-field"><label>确认密码</label><input id="authPw2" type="password" autocomplete="new-password" placeholder="再输一次"></div>' : "") +
+      '<div class="auth-field"><label>' + (isReset ? "新密码" : "密码") + '</label><input id="authPw" type="password" autocomplete="' + (twoPw ? "new-password" : "current-password") + '" placeholder="' + (twoPw ? "至少 4 位" : "请输入密码") + '"></div>' +
+      (twoPw ? '<div class="auth-field"><label>确认密码</label><input id="authPw2" type="password" autocomplete="new-password" placeholder="再输一次"></div>' : "") +
+      (!isReg && names.length ? '<div class="auth-users"><span>本机账号</span>' +
+        names.map(function (n) {
+          return '<button type="button" class="auth-user" data-authuser="' + esc(n) + '">' + esc(n) + "</button>";
+        }).join("") + "</div>" : "") +
       '<label class="auth-check"><input id="authRemember" type="checkbox" checked> 记住登录状态（下次打开免输密码）</label>' +
-      '<div class="auth-actions"><button type="button" class="auth-btn primary" id="authGo">' + (isReg ? "注册" : "登录") + "</button></div>" +
+      '<div class="auth-actions"><button type="button" class="auth-btn primary" id="authGo">' + (isReg ? "注册" : (isReset ? "重置密码" : "登录")) + "</button></div>" +
       '<div class="auth-msg" id="authMsg">' + esc(msg || "") + "</div>" +
       '<div class="auth-switch">' + (isReg
         ? '<span>已经有账号了？</span><button type="button" class="auth-link" data-auth="login">返回登录</button>'
-        : '<span>还没有账号？</span><button type="button" class="auth-link" data-auth="reg">注册新账号</button>') +
+        : (isReset
+          ? '<span>想起来了？</span><button type="button" class="auth-link" data-auth="login">返回登录</button>'
+          : '<span>还没有账号？</span><button type="button" class="auth-link" data-auth="reg">注册新账号</button>' +
+            (names.length ? '<button type="button" class="auth-link" data-auth="reset">忘了密码</button>' : ""))) +
       "</div>" +
       (hasLegacy ? '<div class="auth-extra"><button type="button" class="auth-btn" id="authSkip">先用本机已有进度（不注册）</button></div>' : "") +
       '<p class="auth-note">账号只保存在这台设备上，不需要服务器、不上传任何数据。密码以加盐散列保存，不存明文；换设备时可用「导出学习数据 / 导入学习数据」迁移。</p>' +
       "</div></div>";
     $("viewAuth").innerHTML = h;
     show("viewAuth");
-    $("topTitle").textContent = isReg ? "注册新账号" : "登录";
+    $("topTitle").textContent = isReg ? "注册新账号" : (isReset ? "重置密码" : "登录");
     $("topSub").textContent = isReg
       ? "设置用户名与密码即可"
-      : (names.length ? "已有 " + names.length + " 个账号，输入密码进入" : "第一次使用？点下方「注册新账号」");
+      : (isReset ? "账号保留，只换密码"
+        : (names.length ? "已有 " + names.length + " 个账号，输入密码进入" : "第一次使用？点下方「注册新账号」"));
     var el = $("authName");
     if (el && !lastName()) { try { el.focus(); } catch (e) {} }
   }
@@ -3686,6 +3738,19 @@
     var msg = $("authMsg");
     var remember = !$("authRemember") || $("authRemember").checked;
     function say(m) { if (msg) msg.textContent = m || ""; }
+    if (authTab === "reset") {
+      var npw2 = ($("authPw2") || {}).value || "";
+      if (!String(name).trim()) return say("请输入要重置的用户名");
+      if (pw.length < 4) return say("新密码至少 4 位");
+      if (pw !== npw2) return say("两次输入的新密码不一致");
+      say("正在重置…");
+      resetPassword(name, pw).then(function (u) {
+        authTab = "login";
+        rememberName(u);
+        renderAuth("「" + u + "」的密码已重置，直接用新密码登录即可（学习进度没动）");
+      }).catch(function (e) { say((e && e.message) || "重置失败"); });
+      return;
+    }
     if (authTab === "reg") {
       var pw2 = ($("authPw2") || {}).value || "";
       if (pw !== pw2) return say("两次输入的密码不一致");
@@ -3710,7 +3775,15 @@
         signIn(u);
       }).catch(function (e) {
         var m = (e && e.message) || "登录失败";
-        if (/不存在/.test(m)) m += "：点下方「注册新账号」创建";
+        var have = Object.keys(readAccounts().users);
+        if (/密码不正确/.test(m)) {
+          m = "密码不正确。想不起来可以用下方「忘了密码」在本机重置（账号与进度都在，不用重新注册）。";
+        } else if (/不存在/.test(m)) {
+          m = have.length
+            ? "本机没有「" + String(name).trim() + "」这个账号。已有的账号：" + have.join("、") +
+              "（点上面的账号名自动填入）。若账号确实丢了，用「导出学习数据」把进度带走后重新注册即可。"
+            : "本机还没有任何账号：点下方「注册新账号」创建（只需一次）。";
+        }
         say(m);
       });
     }
