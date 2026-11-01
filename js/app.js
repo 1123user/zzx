@@ -1611,9 +1611,11 @@
     }
 
     if (it.img && state.imgMode === "on") {
+      /* 当前条目是"正在看的那张图"，用 eager + high 抢优先级：
+         iOS PWA 里 lazy 图片在滚动容器中偶发不触发，表现为"图一直不出来" */
       h += '<figure class="b-fig' + (imgSizeOf(it.img) ? " has-ratio" : "") + '"><img class="shot" src="' +
         esc(thumbOf(it.img)) + '" alt="' + esc(it.imgCap || "") +
-        '" loading="lazy" decoding="async"' + imgAttrs(it.img) + ' data-thumb="' + esc(thumbOf(it.img)) +
+        '" loading="eager" fetchpriority="high" decoding="async"' + imgAttrs(it.img) + ' data-thumb="' + esc(thumbOf(it.img)) +
         '" data-full="' + esc(it.img) + '" data-cap="' + esc(it.imgCap || "") + '">' +
         '<figcaption>' + esc(it.imgCap || "") + "</figcaption></figure>";
     }
