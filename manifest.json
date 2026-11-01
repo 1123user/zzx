@@ -10,12 +10,43 @@
   "background_color": "#f6f4ef",
   "theme_color": "#ffffff",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    {
+      "src": "icons/icon-192.png?v=2",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png?v=2",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512-maskable.png?v=2",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
   "shortcuts": [
-    { "name": "背诵中心", "short_name": "背诵", "url": "./?go=bs", "description": "92 条背诵清单，打开就背" },
-    { "name": "原理对材料", "short_name": "原理", "url": "./?go=pair", "description": "马原 18 原理 × 材料信号" },
-    { "name": "2026 整周年", "short_name": "周年", "url": "./?go=anniv", "description": "史纲周年主线" }
+    {
+      "name": "背诵中心",
+      "short_name": "背诵",
+      "url": "./?go=bs",
+      "description": "92 条背诵清单，打开就背"
+    },
+    {
+      "name": "原理对材料",
+      "short_name": "原理",
+      "url": "./?go=pair",
+      "description": "马原 18 原理 × 材料信号"
+    },
+    {
+      "name": "2026 整周年",
+      "short_name": "周年",
+      "url": "./?go=anniv",
+      "description": "史纲周年主线"
+    }
   ]
 }
