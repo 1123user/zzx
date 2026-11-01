@@ -1023,3 +1023,11 @@ section.view.view-enter{animation:viewIn .18s ease-out both}
 .auth-user{padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg-sunken);
   font-size:13px;color:var(--fg);font-weight:600}
 .auth-user:active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+
+/* 登录页：账号记录丢了但进度还在——直接认领，不逼人重新注册 */
+.auth-claim{display:flex;flex-direction:column;gap:8px;margin:14px 0 6px;padding:12px 13px;
+  border-radius:var(--r-sm);background:var(--accent-soft);border:1px solid var(--accent-dim,rgba(176,60,50,.18))}
+.auth-claim>b{font-size:11.5px;color:var(--accent);font-weight:650;letter-spacing:.2px}
+.auth-claim-btn{text-align:left;padding:9px 12px;border-radius:var(--r-sm);border:1px solid var(--line);
+  background:var(--bg);font-size:12.5px;line-height:1.5;color:var(--fg);font-weight:600}
+.auth-claim-btn:active{background:var(--accent);border-color:var(--accent);color:#fff}
