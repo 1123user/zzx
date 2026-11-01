@@ -292,17 +292,22 @@
         dirtyKeys[k] = 1;                      // 回滚结果必须写回数据库，否则下次启动又会读到坏数据
         restored++;
       } else {
+        /* 指纹对不上时，老逻辑是「隔离 + 从库里删掉」。但数据全部由本机写入，
+           没有跨端不可信来源；一次指纹算法调整、一次写入被系统打断，
+           就会把用户几个月的进度静默抹掉（表现为「打开是空的，只能重来」）。
+           现在改成：留一份原始副本，主记录重新签名后照样使用。 */
         var qk = "quarantine:" + k + ":" + Date.now();
-        mem[qk] = rec;                         // 留住证据，便于排查
-        dirtyKeys[qk] = 1;                     // 隔离副本落库
-        delete mem[k];
-        delRecInDb(k);                         // 坏记录从库里删掉（内存里已移出）
+        mem[qk] = { at: Date.now(), oldSig: rec.sig, data: rec.data };   // 留存证据，便于排查
+        dirtyKeys[qk] = 1;
+        rec.oldSig = rec.sig;
+        delete rec.sig;                        // 让 setRec 重算指纹
+        setRec(k, rec.data, true);             // 走正规写入：规范化 + 新指纹
         quarantined++;
       }
     });
     if (restored || quarantined) flushNow();       // 把自愈结果立刻落库
     if (restored) toastOnce("检测到学习数据异常，已自动回滚到上一次正常状态");
-    if (quarantined) toastOnce("检测到数据损坏，已隔离坏数据并继续使用（数据未被污染）");
+    if (quarantined) toastOnce("学习数据的校验标记不一致，已重新校验并完整保留（数据不会丢）");
     return { restored: restored, quarantined: quarantined };
   }
 
@@ -489,6 +494,72 @@
     return Object.keys(mem).filter(function (k) { return k.indexOf("acc:") === 0; })
       .map(function (k) { return k.slice(4); });
   }
+  /* ---------------- 数据即身份（device-first） ----------------
+     账号记录只是「一把锁」，不是进门的门票。学习数据（progress/wrong）在谁名下，
+     谁就是这台设备上的用户。这样 IndexedDB 被系统清理、换过域名、旧版迁移失败时，
+     用户也不会被挡在登录页上「只能重新注册」。 */
+  function hasUserData(name) {
+    var want = (name || "");
+    var keys = Object.keys(mem);
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (k.indexOf("progress:") !== 0 && k.indexOf("wrong:") !== 0) continue;
+      if (k.slice(k.indexOf(":") + 1) !== want) continue;
+      var d = mem[k] && mem[k].data;
+      if (isPlainObject(d) && Object.keys(d).length) return true;
+    }
+    return false;
+  }
+  /* 有数据、但账号记录已丢的身份（空字符串＝「本机身份」） */
+  function localIdentities() {
+    var accs = accountNames(), seen = {}, out = [];
+    Object.keys(mem).forEach(function (k) {
+      var i = k.indexOf(":");
+      if (i < 0) return;
+      var kind = k.slice(0, i), n = k.slice(i + 1);
+      if (kind !== "progress" && kind !== "wrong") return;   // 只要进度或错题库有内容，就算用过
+      if (n && accs.indexOf(n) >= 0) return;
+      if (seen[n]) return;
+      if (!hasUserData(n)) return;
+      seen[n] = 1; out.push(n);
+    });
+    out.sort(function (a, b) { return (b ? 1 : 0) - (a ? 1 : 0); });   // 具名身份排在「本机身份」前
+    return out;
+  }
+  /* 补一条「无密码」账号记录：让这份数据重新有名字，之后可随时上锁 */
+  function ensureAccount(name) {
+    name = String(name || "").trim();
+    if (!name) return false;
+    if (readAccounts().users[name]) return false;
+    if (!/^[A-Za-z0-9\u4e00-\u9fa5._-]{1,20}$/.test(name)) return false;
+    setRec("acc:" + name, { salt: "", iter: 0, hash: "", at: Date.now(), restored: true });
+    syncAccountMirror();
+    return true;
+  }
+  /* 用本次输入的密码，把「已在数据里存在」的身份认领下来（顺手设成新密码） */
+  function claimAccount(name, pw) {
+    name = String(name || "").trim();
+    if (!/^[A-Za-z0-9\u4e00-\u9fa5._-]{1,20}$/.test(name)) {
+      return Promise.reject(new Error("用户名只能用中英文、数字、下划线、点与短横线（1-20 位）"));
+    }
+    if (String(pw || "").length < 4) return Promise.reject(new Error("密码至少 4 位，用来给这份进度上锁"));
+    if (String(pw || "").length > 64) return Promise.reject(new Error("密码最多 64 位"));
+    var salt = newSalt();
+    return hashPassword(pw, salt, PBKDF2_ITER).then(function (h) {
+      setRec("acc:" + name, { salt: salt, iter: PBKDF2_ITER, hash: h, at: Date.now(), claimed: true });
+      syncAccountMirror();
+      return name;
+    });
+  }
+
+  /* 账号表在 localStorage 再留一份镜像：iOS 只清 IndexedDB、或 IDB 损坏时，
+     账号（含 salt/散列）还能捞回来，用户不必重新注册。 */
+  function syncAccountMirror() {
+    try {
+      localStorage.setItem("zzx.accounts.v1", JSON.stringify({ v: 1, users: readAccounts().users }));
+    } catch (e) {}
+  }
+
   function readAccounts() {
     var users = {};
     accountNames().forEach(function (n) { var d = recData("acc:" + n); if (d) users[n] = d; });
@@ -496,21 +567,29 @@
   }
   function writeAccounts(a) {
     Object.keys(a.users || {}).forEach(function (n) { setRec("acc:" + n, a.users[n]); });
+    syncAccountMirror();
   }
   /* 首次启动：把旧的 localStorage 数据整体搬进库（旧键保留，可回退） */
   function migrateLegacy() {
-    if (mem["meta"]) return 0;
+    /* 只搬「库里还没有」的键：以前只要有 meta 就整体跳过，
+       一旦 IndexedDB 被清掉，留在 localStorage 的老数据就再也搬不回来。
+       现在每次启动都对一遍，缺什么补什么（幂等，毫秒级）。 */
     var n = 0;
     try {
       var accRaw = localStorage.getItem("zzx.accounts.v1");
       if (accRaw) {
         var a = safeJSON(accRaw);
         Object.keys((a && a.users) || {}).forEach(function (u) {
-          if (/^[A-Za-z0-9\u4e00-\u9fa5._-]{1,20}$/.test(u)) { setRec("acc:" + u, a.users[u], true); n++; }
+          if (!/^[A-Za-z0-9\u4e00-\u9fa5._-]{1,20}$/.test(u)) return;
+          if (mem["acc:" + u]) return;                 // 已有记录不覆盖
+          setRec("acc:" + u, a.users[u], true); n++;
         });
       }
       var sesRaw = localStorage.getItem("zzx.session.v1") || sessionStorage.getItem("zzx.session.v1");
-      if (sesRaw) { var sr = safeJSON(sesRaw); if (isPlainObject(sr)) { setRec("session", sr, true); n++; } }
+      if (sesRaw && !mem["session"]) {
+        var sr = safeJSON(sesRaw);
+        if (isPlainObject(sr)) { setRec("session", sr, true); n++; }
+      }
       var keys = [];
       try {
         for (var i = 0; i < localStorage.length; i++) {
@@ -598,6 +677,7 @@
       u.salt = salt; u.hash = h; u.iter = PBKDF2_ITER; u.resetAt = Date.now();
       a.users[name] = u;
       writeAccounts(a);
+      syncAccountMirror();
       return name;
     });
   }
@@ -605,7 +685,13 @@
   function loginAccount(name, pw) {
     name = String(name || "").trim();
     var a = readAccounts(), u = a.users[name];
-    if (!u) return Promise.reject(new Error("用户名不存在，请先注册"));
+    if (!u) {
+      /* 账号记录没了但数据还在：直接把这份进度认领下来，不再要求重新注册 */
+      if (hasUserData(name)) return claimAccount(name, pw);
+      return Promise.reject(new Error("NONE:" + name));
+    }
+    /* 恢复出来的记录没有密码锁：用这次输入的密码补上 */
+    if (!u.hash) return claimAccount(name, pw);
     var iter = u.iter || PBKDF2_ITER;
     return hashPassword(pw, u.salt, iter).then(function (h) {
       if (h === u.hash) return name;
@@ -635,15 +721,18 @@
     } catch (e) {}
   }
   function readSession() {
+    /* 老实现要求「账号记录还在」才算有会话——记录一丢就掉登录，只能重新注册。
+       现在只要这份身份在库里有数据，就认它是同一个人。 */
+    function ok(u) { return typeof u === "string" && (readAccounts().users[u] || hasUserData(u)); }
     var d = recData("session");
-    if (d && d.user && readAccounts().users[d.user]) return d.user;
+    if (d && ok(d.user)) return d.user;
     try {                                        // 兜底：本次会话内的临时登录
       var t = safeJSON(sessionStorage.getItem(SSESS_KEY) || "null");
-      if (isPlainObject(t) && t.user && readAccounts().users[t.user]) return t.user;
+      if (isPlainObject(t) && ok(t.user)) return t.user;
     } catch (e) {}
     try {                                        // 兜底：旧版本留在 localStorage 的会话
       var old = safeJSON(localStorage.getItem("zzx.session.v1") || "null");
-      if (isPlainObject(old) && old.user && readAccounts().users[old.user]) return old.user;
+      if (isPlainObject(old) && ok(old.user)) return old.user;
     } catch (e) {}
     return null;
   }
@@ -3303,8 +3392,10 @@
           if ($("authPw")) { try { $("authPw").focus(); } catch (e) {} }
           return;
         }
+        var cl = el.closest ? el.closest("[data-claim]") : null;
+        if (cl) { enterLocal(cl.getAttribute("data-claim") || ""); return; }
         if (el.closest && el.closest("#authSkip")) {
-          if (confirm("沿用本机已有进度，不创建账号。之后随时可在侧边栏注册并登录。")) signIn(null);
+          enterLocal(el.getAttribute("data-skip") || "");
           return;
         }
       });
@@ -3690,8 +3781,13 @@
     syncUserUI();
     var a = readAccounts();
     var names = Object.keys(a.users);
-    var hasLegacy = !names.length && (localStorage.getItem("zzx.progress.v1") || localStorage.getItem("zzx.wrong.v1"));
     var isReg = authTab === "reg", isReset = authTab === "reset";
+    var orphans = localIdentities().filter(function (n) { return !!n; });   // 有数据、没账号记录的身份
+    var hasLegacy = !names.length && (localStorage.getItem("zzx.progress.v1") || localStorage.getItem("zzx.wrong.v1"));
+    /* 任何情况下都留一条出口：没数据也能先进去，别让人卡在门口 */
+    var canSkip = !names.length && !isReg && !isReset;
+    var skipName = orphans[0] || "";
+    var skipHasData = localIdentities().length > 0 || !!hasLegacy;
     var twoPw = isReg || isReset;
     var h = '<div class="auth-wrap"><div class="auth-card">' +
       '<div class="hero" style="padding:0 0 14px;border-bottom:0;margin:0">' +
@@ -3705,6 +3801,11 @@
       '<div class="auth-field"><label>用户名</label><input id="authName" type="text" autocomplete="username" autocapitalize="off" placeholder="例如：kaoyan" value="' + esc(lastName()) + '"></div>' +
       '<div class="auth-field"><label>' + (isReset ? "新密码" : "密码") + '</label><input id="authPw" type="password" autocomplete="' + (twoPw ? "new-password" : "current-password") + '" placeholder="' + (twoPw ? "至少 4 位" : "请输入密码") + '"></div>' +
       (twoPw ? '<div class="auth-field"><label>确认密码</label><input id="authPw2" type="password" autocomplete="new-password" placeholder="再输一次"></div>' : "") +
+      (!isReg && orphans.length ? '<div class="auth-claim"><b>本机还有这些学习进度</b>' +
+        orphans.map(function (n) {
+          return '<button type="button" class="auth-claim-btn" data-claim="' + esc(n) + '">' +
+            "「" + esc(n) + "」· 背诵位置与错题都在 → 直接进入</button>";
+        }).join("") + "</div>" : "") +
       (!isReg && names.length ? '<div class="auth-users"><span>本机账号</span>' +
         names.map(function (n) {
           return '<button type="button" class="auth-user" data-authuser="' + esc(n) + '">' + esc(n) + "</button>";
@@ -3719,8 +3820,12 @@
           : '<span>还没有账号？</span><button type="button" class="auth-link" data-auth="reg">注册新账号</button>' +
             (names.length ? '<button type="button" class="auth-link" data-auth="reset">忘了密码</button>' : ""))) +
       "</div>" +
-      (hasLegacy ? '<div class="auth-extra"><button type="button" class="auth-btn" id="authSkip">先用本机已有进度（不注册）</button></div>' : "") +
-      '<p class="auth-note">账号只保存在这台设备上，不需要服务器、不上传任何数据。密码以加盐散列保存，不存明文；换设备时可用「导出学习数据 / 导入学习数据」迁移。</p>' +
+      (canSkip ? '<div class="auth-extra"><button type="button" class="auth-btn" id="authSkip" data-skip="' +
+        esc(skipName) + '">' + (skipHasData ? "不登录，直接用本机进度进入" : "先不登录，直接进入（进度为空）") +
+        "</button></div>" : "") +
+      '<p class="auth-note">账号只是给本机进度上的一把锁，不需要服务器、不上传任何数据。' +
+        (orphans.length ? "" : "没登录也能直接用，之后在侧边栏「切换账号」里随时设置密码。") +
+        "换设备时可用「导出学习数据 / 导入学习数据」迁移。</p>" +
       "</div></div>";
     $("viewAuth").innerHTML = h;
     show("viewAuth");
@@ -3776,7 +3881,12 @@
       }).catch(function (e) {
         var m = (e && e.message) || "登录失败";
         var have = Object.keys(readAccounts().users);
-        if (/密码不正确/.test(m)) {
+        if (/^NONE:/.test(m)) {
+          var wantName = m.slice(5).trim();
+          m = "本机没有「" + wantName + "」的数据（可能是换过设备或清过浏览器数据）。" +
+            (have.length ? "本机现有账号：" + have.join("、") + "。" : "") +
+            "可以点「注册新账号」用这个名字重新开始，或用「导出学习数据」把旧进度导入回来。";
+        } else if (/密码不正确/.test(m)) {
           m = "密码不正确。想不起来可以用下方「忘了密码」在本机重置（账号与进度都在，不用重新注册）。";
         } else if (/不存在/.test(m)) {
           m = have.length
@@ -3792,6 +3902,17 @@
     var el = $("userName");
     if (el) el.textContent = state.user || (document.body.classList.contains("auth-mode") ? "未登录" : "本机用户");
   }
+  /* 用本机已有数据进入：补一条账号记录（无密码），并记住这个身份，
+     下次打开不再被登录页拦住。密码可之后在「切换账号」里补。 */
+  function enterLocal(name) {
+    name = String(name || "").trim();
+    if (name) ensureAccount(name);
+    rememberName(name);
+    setSession(name, true);
+    toast(name ? "已用「" + name + "」的进度进入" : "已用本机进度进入");
+    signIn(name);
+  }
+
   /* 登录成功（或选择本机身份）后进入主流程 */
   function signIn(name) {
     state.user = name || null;
@@ -3834,7 +3955,22 @@
       verifyRecords();          // 指纹校验：损坏/被篡改的记录会回滚或隔离，不进内存
       askPersist();
       var sess = readSession();
-      if (sess) { signIn(sess); return; }    // 「记住登录」：直接进入自己的进度
+      if (sess !== null) {                   // 记住登录：账号记录缺失也直接进
+        if (sess) ensureAccount(sess);
+        signIn(sess); return;
+      }
+      /* 本机只有一份进度、却没有账号记录（存储被清 / 换过地址 / 旧版迁移失败）：
+         不拦人，直接进这份进度，并补上身份记录 */
+      var ids = localIdentities();
+      if (ids.length === 1) {
+        var only = ids[0];
+        if (only) ensureAccount(only);
+        rememberName(only);
+        setSession(only, true);
+        signIn(only);
+        toastOnce("检测到本机学习进度，已自动接着用" + (only ? "（" + only + "）" : ""));
+        return;
+      }
       renderAuth("");
     }).catch(function () {
       renderAuth("");
