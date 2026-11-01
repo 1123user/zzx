@@ -1108,7 +1108,7 @@
       '<i style="display:block;height:100%;width:' + (tot ? Math.round(dn / tot * 100) : 0) + '%;background:var(--accent);border-radius:5px"></i></div>' +
       '<p style="font-size:12px;color:var(--fg-3);margin:0">' + (dn ? "继续保持，逐条过一遍即通关。" : "点开任一板块，从第一条开始。") + "</p></div>";
     var bsEl = $("bsSideN");
-    if (bsEl) { var bn = bsTotal(); bsEl.textContent = bn ? (bsDoneCount() + "/" + bn + " 已背") : "手机离线背"; }
+    if (bsEl) { var bn = bsTotal(); bsEl.textContent = bn ? (bn + " 条 · 手机离线背") : "手机离线背"; }
     syncQuizTotal();
     syncWrongBadge();
   }
@@ -1131,14 +1131,14 @@
       tot += pool.length;
       pool.forEach(function (x) { if (pr && pr.done && pr.done[x.id]) dn++; });
     });
-    var bsN = bsTotal(), bsD = bsDoneCount();
+    var bsN = bsTotal();
     var h = '<div class="wrap">';
     h += '<div class="hero"><h1>打开就<em>背</em>，背完就记住</h1>' +
       '<p>依据《2027 年考研政治考试大纲》梳理 · 马原 / 毛中特 / 史纲 / 思修法治 / 形策</p>' +
       '<div class="hero-stats">' +
       "<div><b>" + tot + "</b><span>考点</span></div>" +
       "<div><b>" + (bsN || "—") + "</b><span>背诵条目</span></div>" +
-      "<div><b>" + (bsN ? bsD : "—") + "</b><span>已背</span></div>" +
+      "<div><b>" + (bsN ? bsMustCount() : "—") + "</b><span>必背</span></div>" +
       "</div></div>";
 
     /* 背诵优先级最高：一进来就是「今天还要背几条 / 今天该复习几条」 */
@@ -1148,7 +1148,7 @@
     h += '<div class="sec-title">背诵三件套</div><div class="cards">';
     h += '<button type="button" class="card sprint-card" data-home="bs" style="--cc:var(--c-my)">' +
       '<div class="card-top"><b>背诵中心</b><span class="bdg">' + (bsN || 92) + " 条</span></div>" +
-      "<p>27 届背诵清单：标题→线索→正文→方法论；✓ 会背 / ? 模糊，遮住正文按键回忆。</p>" +
+      "<p>27 届背诵清单：标题→线索→正文→方法论；遮住正文按键回忆，翻到哪背到哪。</p>" +
       '<div class="mrow"><span>四部分 · 重点分级</span><span>手机离线可用</span></div></button>';
     h += '<button type="button" class="card sprint-card" data-home="pair" style="--cc:var(--c-my)">' +
       '<div class="card-top"><b>马原 · 原理对材料</b><span class="bdg">18 原理</span></div>' +
@@ -1197,44 +1197,28 @@
     var D = window.ZZX_BS;
     return (D && D.parts) ? bsAll(D).length : 0;
   }
-  function bsDoneCount() {
+  function bsMustCount() {
     var D = window.ZZX_BS;
     if (!D || !D.parts) return 0;
-    var st = bsState(), n = 0;
-    bsAll(D).forEach(function (x) { if (st.mk[x.key] === 2) n++; });
-    return n;
+    return bsAll(D).filter(function (x) { return x.lv === 2; }).length;
   }
-  /* 首页主按钮：今天该背/该复习几条，点进去就是背诵中心 */
+  /* 首页入口卡：回到上次翻到的那一部分，用户自己往下背 */
   function bsCtaHtml() {
     var D = window.ZZX_BS;
     if (!D || !D.parts) return "";
-    var st = bsState(), all = bsAll(D), doing = 0, due = 0;
-    all.forEach(function (x) {
-      var lv = st.mk[x.key] || 0;
-      if (lv === 2) { if (bsDue(st, x.key)) due++; }
-      else doing++;
-    });
-    var done = all.filter(function (x) { return st.mk[x.key] === 2; }).length;
-    var pct = all.length ? Math.round(done / all.length * 100) : 0;
-    var h = '<div class="bs-cta"><div class="bs-cta-top">' +
-      '<b>' + (due ? "今天先复习 " + due + " 条" : (doing ? "还有 " + doing + " 条没背" : "全部背完了")) + "</b>" +
-      '<span>已背 ' + done + " / " + all.length + " · " + pct + "%</span></div>" +
-      '<div class="bs-cta-bar"><i style="width:' + pct + '%"></i></div>' +
-      '<button type="button" class="bs-cta-go" data-home="bs">' +
-      (due ? "开始今日复习" : "打开背诵清单") + " →</button></div>";
-    return h;
-  }
-  /* 间隔重复：会背的按 1/3/7/15/30 天回访；标「模糊」的隔天就来 */
-  var BS_GAP = [1, 3, 7, 15, 30];
-  function bsDue(st, key) {
-    var lv = st.mk[key] || 0;
-    if (!lv) return false;
-    var at = st.at[key] || 0;
-    if (!at) return true;                            // 老数据没有时间戳：算作待复习
-    var d = (Date.now() - at) / 86400000;
-    if (lv === 1) return d >= 1;
-    var rep = Math.min(st.rep[key] || 0, BS_GAP.length - 1);
-    return d >= BS_GAP[rep];
+    var st = bsState(), all = bsAll(D);
+    var must = all.filter(function (x) { return x.lv === 2; }).length;
+    var pi = Math.min(st.part, D.parts.length - 1);
+    var part = D.parts[pi] || { name: "" };
+    /* 四段小格代替百分比：这是"背到第几部分"，不是完成度，避免误读成打卡进度 */
+    var segs = D.parts.map(function (_, i) {
+      return "<i" + (i <= pi ? ' class="on"' : "") + "></i>";
+    }).join("");
+    return '<div class="bs-cta"><div class="bs-cta-top">' +
+      "<b>接着背：" + esc(part.abbr || part.name) + "</b>" +
+      "<span>第 " + (pi + 1) + "/" + D.parts.length + " 部分 · 必背 " + must + "</span></div>" +
+      '<div class="bs-cta-parts">' + segs + "</div>" +
+      '<button type="button" class="bs-cta-go" data-home="bs">继续背 →</button></div>';
   }
 
   /* 首页「从这里开始」：一个继续按钮 + 一个高频推荐，替代"自己找上次学到哪" */
@@ -1564,7 +1548,7 @@
         ' data-jump="' + esc(x.id) + '"><i>' + (i + 1) + "</i><span>" + esc(x.title) + "</span>" +
         (p.done && p.done[x.id] ? "<em>已学</em>" : "") + "</button>";
     });
-    if (zt.n) h += '<div class="um-note">本单元近年考 ' + zt.n + " 次 · 已背 " + done + "/" + items.length + "</div>";
+    if (zt.n) h += '<div class="um-note">本单元近年考 ' + zt.n + " 次 · " + items.length + " 条背诵内容</div>";
     return h + "</div></details>";
   }
 
@@ -1775,6 +1759,53 @@
     });
   }
 
+  /* ================= 真题锚点（小板块共用） =================
+     小板块最容易写成"讲道理"，这里统一给每条内容挂上真实数据：
+     它属于哪个单元、这个单元在真题里考过几次、具体哪几年考过。 */
+  function ztOf(unit) { return unit ? (window.ZZX_ZT || {})[unit] || null : null; }
+  function ztYears(unit, max) {
+    var z = ztOf(unit);
+    if (!z || !z.years) return "";
+    var ys = Object.keys(z.years).sort();
+    return ys.slice(Math.max(0, ys.length - (max || 3))).join("·");
+  }
+  /* 单元 → 可读标签，如「史纲 2」 */
+  function unitLabel(unit) {
+    if (!unit) return "";
+    var m = /^(my|mao|sg|sf|xc)(\d+)$/.exec(unit);
+    if (!m) return unit;
+    var nm = { my: "马原", mao: "毛中特", sg: "史纲", sf: "思修", xc: "形策" }[m[1]] || m[1];
+    return nm + " " + m[2];
+  }
+  /* id → unit（整周年用 ids 反查） */
+  var _unitById = null;
+  function itemUnitOf(id) {
+    if (!_unitById) {
+      _unitById = {};
+      ["my", "mao", "sg", "sf", "xc"].forEach(function (b) {
+        var d = getBoard(b);
+        if (d) d.items.forEach(function (x) { _unitById[x.id] = x.unit; });
+      });
+    }
+    return _unitById[id] || "";
+  }
+  /* 一条真题锚点文案：「史纲 2 · 2009 年考 · 2010·2015·2021」 */
+  function ztAnchor(unit, max) {
+    var z = ztOf(unit);
+    if (!z || !z.n) return "";
+    var ys = ztYears(unit, max || 3);
+    return unitLabel(unit) + " · 考 " + z.n + " 次" + (ys ? "（" + ys + "）" : "");
+  }
+  /* 条目首个正文段落，用于在案例卡上给"考点原文" */
+  function firstPara(it) {
+    var bs = (it && it.blocks) || [];
+    for (var i = 0; i < bs.length; i++) {
+      if (bs[i].t === "p" && bs[i].v) return String(bs[i].v);
+      if (bs[i].t === "kv" && bs[i].v && bs[i].v[0]) return bs[i].v[0][1];
+    }
+    return "";
+  }
+
   /* ---------------- 双主线时间轴 ---------------- */
   var lineMode = 1;
   function renderLine() {
@@ -1790,15 +1821,26 @@
       .sort(function (a, b) { return (a.year || 0) - (b.year || 0); });
 
     function node(it) {
-      var bd = boardOf(it);
+      /* 时间轴按时间读，单元名重复没意义，只留「考几次 + 哪几年」 */
+      var z = ztOf(it.unit), zt = "";
+      if (z && z.n) { var ys = ztYears(it.unit, 3); zt = "真题 " + z.n + " 次" + (ys ? " · " + ys : ""); }
       return '<div class="tl-node"><div class="tl-year">' + esc(it.dateLabel || it.year || "") + "</div>" +
         '<div class="tl-body"><h4>' + esc(it.title) + "</h4>" +
         "<p>" + esc(it.sub || "") + "</p>" +
-        '<div class="tags"><button type="button" class="chip" data-jump="' + esc(it.id) + '">查看考点</button>' +
+        (zt ? '<div class="tl-zt">' + esc(zt) + "</div>" : "") +
+        '<div class="tags"><button type="button" class="chip" data-jump="' + esc(it.id) + '">看考点原文</button>' +
         (it.kind ? '<span class="tagline k-' + esc(KIND_LABEL[it.kind] ? it.kind : "topic") + '">' + (KIND_LABEL[it.kind] || "") + "</span>" : "") + "</div></div></div>";
     }
     var h = '<div class="wrap">';
+    var ztSum = 0;
+    var seenU = {};
+    items.forEach(function (it) {
+      if (!it.unit || seenU[it.unit]) return;
+      seenU[it.unit] = 1;
+      var z = ztOf(it.unit); if (z) ztSum += z.n;
+    });
     h += '<div class="crumb"><span>双主线时间轴</span><span>·</span><span>事件轴 ⇄ 党的理论政策轴</span></div>';
+    h += '<div class="tl-note">每个节点都标了它所在单元的真题锚点（考过几次、哪几年考），背完一句就知道这个点值几分。</div>';
     h += '<div class="axis-switch">' +
       '<button type="button" class="chip' + (lineMode === 1 ? " on" : "") + '" data-line="1">并排对照</button>' +
       '<button type="button" class="chip' + (lineMode === 2 ? " on" : "") + '" data-line="2">仅事件轴</button>' +
@@ -1838,6 +1880,7 @@
   function renderCase(q) {
     var h = '<div class="wrap">';
     h += '<div class="crumb"><span>案例反查原理</span><span>·</span><span>马原专用</span></div>';
+    h += '<div class="case-tip">分析题的材料都长这样：先认案例，再答它对应的原理原句，最后落材料。每条都标了考点原文与真题锚点。</div>';
     h += '<div class="search-box" style="margin-bottom:14px"><input id="caseInput" type="search" placeholder="输入现实案例，如：统筹疫情防控与经济社会发展" value="' + esc(q || "") + '"></div>';
     var hits = [];
     if (q) {
@@ -1854,20 +1897,27 @@
       });
     }
     if (!q) {
-      h += '<div class="sec-title">常见案例速查</div><div class="cards">' + (caseIndex || []).slice(0, 24).map(function (x) {
-        return '<button type="button" class="card" data-case="' + esc(x.c.q) + '" style="--cc:var(--c-my)">' +
-          '<div class="card-top"><b>' + esc(x.c.q) + '</b><span class="bdg">案例</span></div>' +
-          "<p>→ " + esc(x.it.title) + "</p></button>";
-      }).join("") + "</div>";
+      h += '<div class="sec-title">按案例找原理 · ' + (caseIndex || []).length + ' 条</div><div class="cards">' +
+        (caseIndex || []).slice(0, 24).map(function (x) {
+          var fp = firstPara(x.it);
+          return '<button type="button" class="card" data-case="' + esc(x.c.q) + '" style="--cc:var(--c-my)">' +
+            '<div class="card-top"><b>' + esc(x.c.q) + '</b><span class="bdg">' + esc(x.it.title) + "</span></div>" +
+            "<p>" + esc(fp ? fp.slice(0, 62) + (fp.length > 62 ? "…" : "") : x.c.a) + "</p>" +
+            (ztAnchor(x.it.unit, 2) ? '<div class="case-zt">真题锚点：' + esc(ztAnchor(x.it.unit, 2)) + "</div>" : "") +
+            "</button>";
+        }).join("") + "</div>";
     } else if (!hits.length) {
       h += '<div class="empty">没有匹配的案例或原理<br>换个关键词试试，例如「矛盾」「量变」「脱贫攻坚」「改革」</div>';
     } else {
       h += '<div class="sec-title">匹配到 ' + hits.length + " 条</div>";
       h += hits.map(function (x) {
+        var fp = firstPara(x.it), zt = ztAnchor(x.it.unit, 3);
         return '<div class="anchor-card" style="margin-bottom:10px">' +
           "<h4>" + esc(x.it.title) + " ← " + esc(x.c.q) + "</h4>" +
           "<p>" + esc(x.c.a) + "</p>" +
-          '<div class="b-link" style="margin-top:9px"><button type="button" data-jump="' + esc(x.it.id) + '"><i>原理</i>查看完整考点</button></div></div>';
+          (fp ? '<p class="case-core"><b>考点原文</b>' + esc(fp) + "</p>" : "") +
+          (zt ? '<div class="case-zt">真题锚点：' + esc(zt) + "</div>" : "") +
+          '<div class="b-link" style="margin-top:9px"><button type="button" data-jump="' + esc(x.it.id) + '"><i>原理</i>背诵原句</button></div></div>';
       }).join("");
     }
     h += "</div>";
@@ -1990,15 +2040,35 @@
     var items = (D.items || []).slice().sort(function (a, b) { return (a.y - b.y) || (b.n - a.n); });
     var h = '<div class="wrap">';
     h += '<div class="crumb"><span>史纲</span><span>·</span><span>2026 整周年主线</span></div>';
-    h += '<div class="hero-mini"><h1>史纲只背<em>这一页</em></h1><p>' + esc(D.note || "") + "</p></div>";
+    var ztAll = "";
+    (function () {
+      var sum = 0, seen = {};
+      items.forEach(function (it) {
+        (it.ids || []).forEach(function (id) {
+          var u = itemUnitOf(id);
+          if (!u || seen[u]) return;
+          seen[u] = 1;
+          var z = ztOf(u); if (z) sum += z.n;
+        });
+      });
+      if (sum) ztAll = '<div class="anniv-zt-top">这些节点覆盖的考点单元，2010—2023 年真题共考 ' + sum + " 次。</div>";
+    })();
+    h += '<div class="hero-mini"><h1>史纲只背<em>这一页</em></h1><p>' + esc(D.note || "") + "</p>" + ztAll + "</div>";
     h += '<div class="anniv-lines">' + (D.lines || []).map(function (l) {
       return '<div class="al-item"><b>' + esc(l.name) + "</b><span>" + esc(l.desc) + "</span></div>";
     }).join("") + "</div>";
     h += '<div class="sec-title">整周年节点 · ' + items.length + " 个</div>";
     h += items.map(function (it) {
+      /* 用 ids 反查单元，把"这个整周年在真题里考过几次"直接标出来 */
+      var us = [], anchors = [];
+      (it.ids || []).forEach(function (id) {
+        var u = itemUnitOf(id);
+        if (u && us.indexOf(u) < 0) { us.push(u); var a = ztAnchor(u, 3); if (a) anchors.push(a); }
+      });
       return '<div class="annv-card">' +
         '<div class="annv-y"><b>' + it.y + '</b><span>' + it.n + " 周年</span></div>" +
         '<div class="annv-main"><h4>' + esc(it.ev) + '</h4><p>' + esc(it.core) + "</p>" +
+        (anchors.length ? '<div class="annv-zt">真题锚点：' + esc(anchors.join("；")) + "</div>" : "") +
         ((it.ids || []).length
           ? '<div class="annv-links">' + it.ids.map(function (id) {
               return '<button type="button" class="chip" data-jump="' + esc(id) + '">回看考点</button>';
@@ -2020,37 +2090,28 @@
   }
 
   /* ================= 背诵中心（27 届背诵清单 92 条） =================
-     手机主屏打到 PWA 上，打开即背：选部分 → 看「线索」回忆 → 展开正文核对 → 勾「已背」。
+     手机主屏打到 PWA 上，打开即背：选部分 → 看「线索」回忆 → 展开正文核对 → 遮住正文自测。
      数据与进度都存本地，离线可用；进度单独一个 key，不并入五板块进度。 */
   var BS_FILES = ["js/data/beisong.js"];
   var BS_KEY = "zzx.bs.v1";
-  /* 记忆状态：mk[key] = 1 模糊 / 2 会背；at 上次标记时间；rep 复习轮次（间隔重复用）。
-     老版本只有 done 布尔，读入时自动迁移成 mk=2，历史进度不丢。 */
+  /* 只记「背到哪」：部分、筛选、遮不遮正文、上次滚动位置。
+     不做会背/模糊这类自评打标，进度完全由自己掌握（翻到哪就是哪）。 */
   function bsState() {
     var s = {};
     try { s = JSON.parse(localStorage.getItem(BS_KEY) || "{}") || {}; } catch (e) { s = {}; }
-    var mk = s.mk || {};
-    if (s.done) { Object.keys(s.done).forEach(function (k) { if (s.done[k] && !mk[k]) mk[k] = 2; }); }
-    return { mk: mk, at: s.at || {}, rep: s.rep || {}, hide: !!s.hide, part: s.part || 0, filter: s.filter || "all" };
+    return {
+      hide: !!s.hide,
+      part: s.part || 0,
+      filter: s.filter === "lv2" ? "lv2" : "all",
+      scroll: s.scroll || 0
+    };
   }
   function bsSave(s) {
     try {
       localStorage.setItem(BS_KEY, JSON.stringify({
-        mk: s.mk, at: s.at, rep: s.rep, hide: s.hide, part: s.part, filter: s.filter
+        hide: s.hide, part: s.part, filter: s.filter, scroll: s.scroll || 0
       }));
     } catch (e) {}
-  }
-  /* lv=2 会背（按 1/3/7/15/30 天回访）、lv=1 模糊（隔天再来）、0 清空 */
-  function bsMark(key, lv) {
-    var s = bsState();
-    if (lv) {
-      s.mk[key] = lv;
-      s.at[key] = Date.now();
-      s.rep[key] = lv === 2 ? Math.min((s.rep[key] || 0) + 1, BS_GAP.length) : 0;
-    } else {
-      delete s.mk[key]; delete s.at[key]; delete s.rep[key];
-    }
-    bsSave(s); renderBs();
   }
   function bsAll(D) {
     var out = [];
@@ -2072,36 +2133,26 @@
     var st = bsState();
     var all = bsAll(D);
     var lv2 = all.filter(function (x) { return x.lv === 2; });
-    var doneN = all.filter(function (x) { return st.mk[x.key] === 2; }).length;
-    var fuzzyN = all.filter(function (x) { return st.mk[x.key] === 1; }).length;
-    var dueN = all.filter(function (x) { return bsDue(st, x.key); }).length;
     var pi = Math.min(st.part, D.parts.length - 1);
     var part = D.parts[pi];
 
     var h = '<div class="wrap">';
     h += '<div class="crumb"><span>背诵中心</span><span>·</span><span>' + esc((D.source && D.source.title) || "27 届背诵清单") + "</span></div>";
     h += '<div class="hero-mini"><h1>打开就背，<em>' + all.length + " 条</em></h1>" +
-      '<p>先看线索回忆，再展开核对；✓ 会背、? 模糊，系统记时间并按时提醒复习。</p></div>';
-
-    h += '<div class="bs-bar"><div class="bs-prog"><i style="width:' + (all.length ? Math.round(doneN / all.length * 100) : 0) + '%"></i></div>' +
-      '<span>会背 ' + doneN + " / " + all.length + (fuzzyN ? " · 模糊 " + fuzzyN : "") + "</span></div>";
+      '<p>先看线索回忆，再展开核对；不设打卡、不计进度，背到哪算哪。遮住正文可点一句露一句。</p></div>';
 
     h += '<div class="bs-tabs">' + D.parts.map(function (p, i) {
-      var n = 0, d = 0;
+      var n = 0;
       (p.sections || []).forEach(function (s) {
-        (s.groups || []).forEach(function (g) {
-          (g.items || []).forEach(function (it) { n++; if (st.mk[it.key] === 2) d++; });
-        });
+        (s.groups || []).forEach(function (g) { n += (g.items || []).length; });
       });
       return '<button type="button" class="bs-tab' + (i === pi ? " on" : "") + '" data-bspart="' + i + '">' +
-        esc(p.abbr) + '<em>' + d + "/" + n + "</em></button>";
+        esc(p.abbr) + "<em>" + n + " 条</em></button>";
     }).join("") + "</div>";
 
     h += '<div class="bs-filters">' +
       '<button type="button" class="chip' + (st.filter === "all" ? " on" : "") + '" data-bsfilter="all">全部</button>' +
       '<button type="button" class="chip' + (st.filter === "lv2" ? " on" : "") + '" data-bsfilter="lv2">只看必背 ' + lv2.length + "</button>" +
-      '<button type="button" class="chip' + (st.filter === "undone" ? " on" : "") + '" data-bsfilter="undone">未背 ' + (all.length - doneN) + "</button>" +
-      '<button type="button" class="chip chip-due' + (st.filter === "due" ? " on" : "") + '" data-bsfilter="due">今日复习 ' + dueN + "</button>" +
       '<button type="button" class="chip' + (st.hide ? " on" : "") + '" data-bshide="1">' + (st.hide ? "正文已遮住" : "遮住正文") + "</button>" +
       "</div>";
 
@@ -2109,22 +2160,16 @@
       var groups = (s.groups || []).map(function (g) {
         var items = (g.items || []).filter(function (it) {
           if (st.filter === "lv2" && it.lv !== 2) return false;
-          if (st.filter === "undone" && st.mk[it.key] === 2) return false;
-          if (st.filter === "due" && !bsDue(st, it.key)) return false;
           return true;
         });
         if (!items.length) return "";
         return '<div class="bs-group"><div class="bs-group-name">' + esc(g.name) + "</div>" +
           items.map(function (it) {
-            var lv = st.mk[it.key] || 0;
-            var cls = lv === 2 ? " is-done" : (lv === 1 ? " is-fuzzy" : "");
-            return '<div class="bs-item' + cls + '">' +
+            return '<div class="bs-item">' +
               '<div class="bs-top">' +
               '<span class="bs-no">' + (it.no < 10 ? "0" : "") + it.no + "</span>" +
               '<b class="bs-title">' + esc(it.title) + "</b>" +
               (it.lv === 2 ? '<span class="bs-lv">必背</span>' : "") +
-              '<button type="button" class="bs-fuzzy' + (lv === 1 ? " on" : "") + '" data-bsq="' + it.key + '" data-lv="1" aria-label="标为模糊">?</button>' +
-              '<button type="button" class="bs-check' + (lv === 2 ? " on" : "") + '" data-bsq="' + it.key + '" data-lv="2" aria-label="标为会背">' + (lv === 2 ? "✓" : "") + "</button>" +
               "</div>" +
               (it.clue ? '<div class="bs-clue"><i>线索</i>' + esc(it.clue) + "</div>" : "") +
               '<div class="bs-body' + (st.hide ? " bs-hidden" : "") + '">' +
@@ -2150,9 +2195,22 @@
     var bsSc = $("viewBs").scrollTop, bsFresh = $("viewBs").hidden || !$("viewBs").innerHTML;
     $("viewBs").innerHTML = h;
     show("viewBs");
-    $("viewBs").scrollTop = bsFresh ? 0 : bsSc;   // 勾选/筛选用局部重绘，不打断背诵位置
+    /* 背到哪停在哪：本次会话沿用原位置，重开 App 用上次存下的位置；滚动时节流回写 */
+    var vb = $("viewBs");
+    var keep = bsFresh ? (st.scroll || 0) : bsSc;
+    vb.scrollTop = keep;
+    viewScroll["viewBs"] = keep;
+    if (!vb._bsScroll) {
+      vb._bsScroll = 1;
+      vb.addEventListener("scroll", function () {
+        clearTimeout(vb._t);
+        vb._t = setTimeout(function () {
+          var s5 = bsState(); s5.scroll = vb.scrollTop; bsSave(s5);
+        }, 600);
+      }, { passive: true });
+    }
     $("topTitle").textContent = "背诵中心";
-    $("topSub").textContent = doneN + " / " + all.length + " 已背 · " + esc(part.abbr);
+    $("topSub").textContent = all.length + " 条 · " + lv2.length + " 必背 · " + esc(part.abbr);
     $("progressStrip").hidden = true;
     $("actionbar").hidden = true;
   }
@@ -3303,14 +3361,6 @@
       }
       var bb = up(".bs-body");
       if (bb && bb.classList.contains("bs-hidden")) { bb.classList.remove("bs-hidden"); return; }
-      var bsq = up("[data-bsq]");
-      if (bsq) {
-        var key4 = bsq.getAttribute("data-bsq");
-        var lv4 = parseInt(bsq.getAttribute("data-lv"), 10) || 2;
-        var cur4 = bsState().mk[key4] || 0;
-        bsMark(key4, cur4 === lv4 ? 0 : lv4);   // 再点一次取消
-        return;
-      }
       var b = up("[data-board]");
       if (b) {
         openBoard(b.getAttribute("data-board"));
