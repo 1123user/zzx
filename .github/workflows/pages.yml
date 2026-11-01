@@ -10,9 +10,11 @@ permissions:
   pages: write
   id-token: write
 
+# 排队而不是抢：连续 push 时若让新部署顶掉旧部署，GitHub 会报
+# "Deployment request failed ... due to in progress deployment" 并给所有人发失败邮件。
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
