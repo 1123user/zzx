@@ -2552,6 +2552,9 @@
     $("topSub").textContent = mdLabel() + " · " + (bd ? bd.short : it.b) + " · " + it.y + " 年第 " + it.n + " 题";
     $("progressStrip").hidden = true;
     $("actionbar").hidden = true;
+    /* 打开每日一题就开始预取材料分析题数据（约 190KB）：读材料、选考点通常要几十秒，
+       等点「完整答题逻辑」时数据已在本机，不必再等一次下载。 */
+    if (!essayBank && !essayLoading) { try { loadEssay(); } catch (e) {} }
   }
 
   function dailyPick(i) {
