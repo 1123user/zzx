@@ -2576,6 +2576,8 @@
     saveDaily();
     renderDaily();
     if (hit === 3) toast("全对 · 三个落点都抓住了");
+    /* 预取材料分析题数据：用户看完解析再点「完整答题逻辑」时就不用等下载 */
+    if (!essayBank && !essayLoading) { try { loadEssay(); } catch (e) {} }
     var el = $("viewDaily").querySelector(".daily-result");
     if (el) setTimeout(function () { try { el.scrollIntoView({ block: "start", behavior: "smooth" }); } catch (e) {} }, 140);
   }
@@ -2588,6 +2590,15 @@
   function openEssayAt(y, n) {
     efilter.board = "all"; efilter.year = "all";
     eOpen[y + "." + n] = true;
+    /* 首次打开要下载 75 道题的数据（约 190KB）：先给出加载态，别让按钮看起来没反应 */
+    if (!essayBank) {
+      $("viewEssay").innerHTML = '<div class="wrap"><div class="empty">正在加载这道题的完整答题逻辑…<br>首次打开需下载全部材料分析题数据</div></div>';
+      show("viewEssay");
+      $("topTitle").textContent = "材料分析题";
+      $("topSub").textContent = "正在加载…";
+      $("progressStrip").hidden = true;
+      $("actionbar").hidden = true;
+    }
     var p = renderEssay();
     (p && p.then ? p : Promise.resolve()).then(function () {
       setTimeout(function () {
