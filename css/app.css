@@ -1045,7 +1045,7 @@ html,body{overscroll-behavior:none}
    填满顶部滚动边缘，而不是叠一层实时模糊。.app 本来就是全屏列容器，这里只在
    standalone 下把它固定住并铺实色底，结构不变、布局不变，模糊带即消失。 */
 @media (display-mode: standalone) {
-  .app { position: fixed; inset: 0; background: var(--bg); }
+  .app { position: fixed; inset: 0; height: auto; background: var(--bg); }
 }
 
 .side-action#dailyBtn{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent)}
