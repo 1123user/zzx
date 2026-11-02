@@ -484,8 +484,10 @@
   function applyUserData() {
     var p = recData("progress:" + (state.user || ""));
     var w = recData("wrong:" + (state.user || ""));
+    var dd = recData("daily:" + (state.user || ""));
     if (p) progress = p;
     if (w && w.q) wrong = w;
+    daily = dd ? sanitizeDaily(dd) : blankDaily();
     try { syncWrongBadge(); syncQuizTotal(); renderSidebar(); } catch (e) {}
     if (!$("viewHome") || $("viewHome").hidden) return;
     try { renderHome(); } catch (e) {}
@@ -824,7 +826,7 @@
   /* 导出/导入：账号数据可在设备之间搬运，也是备份手段 */
   function exportData() {
     try {
-      var payload = { app: "zzx", v: 1, user: state.user || "本机", at: Date.now(), progress: progress, wrong: wrong };
+      var payload = { app: "zzx", v: 1, user: state.user || "本机", at: Date.now(), progress: progress, wrong: wrong, daily: daily };
       var blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
       var url = URL.createObjectURL(blob);
       var a = document.createElement("a");
@@ -853,6 +855,7 @@
         if (!Object.keys(np).length && !Object.keys(nw.q).length) { toast("文件里没有可用的学习数据"); return; }
         progress = np; saveProgress();
         wrong = nw; saveWrong();
+        daily = sanitizeDaily(d.daily); saveDaily();
         indexAll(); renderSidebar(); renderHome(); syncWrongBadge();
         toast("已导入：进度 " + Object.keys(np).length + " 个板块 · 错题 " + Object.keys(nw.q).length + " 道" +
           (typeof d.user === "string" ? "（来自 " + capStr(d.user, 20) + "）" : ""));
@@ -1174,7 +1177,7 @@
 
   /* 视图切换：①记住每个视图的滚动位置，切回时原地续读（不再"回到顶部一片空白"）
      ②新视图 180ms 淡入，遮住硬切瞬间的黑/白闪（也就是用户说的"黑屏、发雾"） */
-  var VIEWS = ["viewHome", "viewStudy", "viewQuiz", "viewLine", "viewCase", "viewEssay", "viewAnalysis", "viewAuth", "viewPair", "viewAnniv", "viewBs"];
+  var VIEWS = ["viewHome", "viewStudy", "viewQuiz", "viewLine", "viewCase", "viewEssay", "viewAnalysis", "viewAuth", "viewPair", "viewAnniv", "viewBs", "viewDaily"];
   var viewScroll = {};
   function show(view) {
     closeSidebar(); // 任何视图切换都收起侧边栏，避免浮层压住内容
@@ -1266,6 +1269,8 @@
 
     /* 背诵优先级最高：一进来就是「今天还要背几条 / 今天该复习几条」 */
     h += bsCtaHtml();
+    /* 每日一题：每天一道真题大题，从 5 个考点里选 3 个 */
+    h += dailyCardHtml();
 
     /* 背诵三件套：背（清单）→ 对（材料）→ 串（周年线） */
     h += '<div class="sec-title">背诵三件套</div><div class="cards">';
@@ -2348,6 +2353,250 @@
     return loadExtra(BS_FILES).then(function () { renderBs(); });
   }
 
+  /* ================= 每日一题（真题大题 · 选 3 个考点） =================
+     每天一道 2010—2024 年的 34—38 题：先看材料要义与设问，再从 5 个考点里
+     选出参考答案真正用到的 3 个。板块按天轮流（马原→毛中特→史纲→思修→形策），
+     每个板块 5 天一换题，25 天不重样；答完给参考答案要点与“为什么是这三个”。
+     答题记录单独存一个 key（按账号隔离），不并入五板块进度。 */
+  var DAILY_BOARDS = ["my", "mao", "sg", "sf", "xc"];
+  var DAILY_KEY = "daily";
+  /* 轮换起点：2026-01-06 起算，使 2026-11-02 正好落在「马原 · 2024 年」这一格；
+     之后每天换板块，5 天换一道题，25 天把 25 道题走完一遍。 */
+  var DAILY_EPOCH = Date.UTC(2026, 0, 6);
+  var DAILY_LETTER = ["A", "B", "C", "D", "E"];
+  var daily = blankDaily();
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function ymdOf(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+  function todayKey() { return ymdOf(new Date()); }
+  function mdLabel() { var d = new Date(); return (d.getMonth() + 1) + " 月 " + d.getDate() + " 日"; }
+  function dailyDayNo() {
+    var d = new Date();
+    var t = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+    return Math.max(0, Math.round((t - DAILY_EPOCH) / 86400000));
+  }
+  function dailyBank() {
+    var D = window.ZZX_DAILY;
+    return (D && D.items) ? D.items : [];
+  }
+  function dailyToday() {
+    var bank = dailyBank();
+    if (!bank.length) return null;
+    var n = dailyDayNo();
+    var bid = DAILY_BOARDS[n % DAILY_BOARDS.length];
+    var pool = bank.filter(function (x) { return x.b === bid; });
+    if (!pool.length) return null;
+    pool = pool.slice().sort(function (a, b) { return (b.y - a.y) || (b.n - a.n); });   // 近年真题优先
+    var idx = Math.floor(n / DAILY_BOARDS.length) % pool.length;
+    return { it: pool[idx], bid: bid, dayNo: n, date: todayKey() };
+  }
+  function dailyBoard(bid) {
+    return BOARDS.filter(function (b) { return b.id === bid; })[0] || null;
+  }
+  function blankDaily() { return { rec: {}, draft: { d: "", picks: [] } }; }
+  function cleanPicks(v) {
+    var out = [];
+    (Array.isArray(v) ? v : []).slice(0, 3).forEach(function (x) {
+      var n = capInt(x, 0, 4, -1);
+      if (n >= 0 && out.indexOf(n) < 0) out.push(n);
+    });
+    return out;
+  }
+  /* 记录来自本机，读回时仍按白名单收紧：日期、题号、选项下标、对错与命中数 */
+  function sanitizeDaily(d) {
+    var out = blankDaily();
+    if (!isPlainObject(d)) return out;
+    var rec = isPlainObject(d.rec) ? d.rec : {};
+    Object.keys(rec).slice(0, 400).forEach(function (k) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) return;
+      var e = rec[k]; if (!isPlainObject(e)) return;
+      var id = capStr(e.id, 16);
+      if (!/^\d{4}-\d{2}$/.test(id)) return;
+      out.rec[k] = {
+        id: id, b: capStr(e.b, 8), picks: cleanPicks(e.picks),
+        ok: e.ok ? 1 : 0, hit: capInt(e.hit, 0, 3, 0), at: capInt(e.at, 0, 9999999999999, 0)
+      };
+    });
+    if (isPlainObject(d.draft) && /^\d{4}-\d{2}-\d{2}$/.test(d.draft.d || "")) {
+      out.draft = { d: d.draft.d, picks: cleanPicks(d.draft.picks) };
+    }
+    return out;
+  }
+  function loadDaily() { return sanitizeDaily(recData(userKey(DAILY_KEY))); }
+  function saveDaily() {
+    if (document.body.classList.contains("auth-mode")) return;   // 登录页上不写入，避免串账号
+    setRec(userKey(DAILY_KEY), daily);
+  }
+  /* 连续答对天数：今天还没答就先看昨天；今天答错则从 0 开始 */
+  function dailyStreak() {
+    var d = new Date(), n = 0, today = todayKey(), skipped = false;
+    for (var i = 0; i < 400; i++) {
+      var k = ymdOf(d), r = daily.rec[k];
+      if (!r && k === today && !skipped) { skipped = true; d.setDate(d.getDate() - 1); continue; }
+      if (r && r.ok) { n++; d.setDate(d.getDate() - 1); continue; }
+      break;
+    }
+    return n;
+  }
+
+  /* 首页入口卡：今天该做哪道、做完没有 */
+  function dailyCardHtml() {
+    var t = dailyToday(); if (!t) return "";
+    var it = t.it, bd = dailyBoard(t.bid), rec = daily.rec[t.date];
+    var bname = bd ? bd.short : (it.b || "");
+    var status = rec
+      ? (rec.ok ? "今日已答对 · 连续 " + dailyStreak() + " 天" : "今日已答 · 选对 " + rec.hit + "/3")
+      : "5 个考点里选 3 个 · 选项来自参考答案";
+    return '<button type="button" class="daily-card' + (rec ? " is-done" : "") + '" data-daily="1" style="--cc:' +
+      (bd ? bd.color : "var(--accent)") + '">' +
+      '<div class="daily-top"><span class="daily-kicker">每日一题 · ' + mdLabel() + '</span>' +
+      '<span class="daily-bdg">' + esc(bname) + "</span></div>" +
+      '<div class="daily-title">' + (rec ? "今天这道已答完" : "这道大题，该答哪三个原理？") + "</div>" +
+      '<div class="daily-sub">' + it.y + " 年第 " + it.n + " 题 · " + esc(it.t) + "</div>" +
+      '<div class="daily-foot"><span>' + esc(status) + "</span><b>" + (rec ? "看解析" : "开始") + " →</b></div></button>";
+  }
+
+  function dailyHistoryHtml() {
+    var cells = "", any = false, today = todayKey();
+    for (var i = 6; i >= 0; i--) {
+      var d = new Date(); d.setDate(d.getDate() - i);
+      var k = ymdOf(d), r = daily.rec[k];
+      if (r) any = true;
+      cells += '<div class="dh-cell' + (r && r.ok ? " ok" : r ? " bad" : "") + (k === today ? " today" : "") + '">' +
+        "<b>" + (r ? (r.ok ? "✓" : "✗") : "·") + "</b><span>" + (d.getMonth() + 1) + "/" + d.getDate() + "</span></div>";
+    }
+    if (!any) return "";
+    return '<div class="daily-hist"><div class="dh-title">最近 7 天</div><div class="dh-row">' + cells + "</div></div>";
+  }
+
+  function renderDaily() {
+    var t = dailyToday();
+    var host = $("viewDaily");
+    if (!t) {
+      host.innerHTML = '<div class="wrap"><div class="empty">每日一题的数据没有加载成功<br>联网后重新打开即可</div></div>';
+      show("viewDaily");
+      $("topTitle").textContent = "每日一题";
+      $("topSub").textContent = "数据未加载";
+      $("progressStrip").hidden = true;
+      $("actionbar").hidden = true;
+      return;
+    }
+    var it = t.it, bd = dailyBoard(t.bid), rec = daily.rec[t.date], answered = !!rec;
+    var picks = rec ? rec.picks.slice() : (daily.draft.d === t.date ? daily.draft.picks.slice() : []);
+    var hit = rec ? rec.hit : 0;
+    var ok = answered && rec.ok;
+
+    var h = '<div class="wrap daily-wrap">';
+    h += '<button type="button" class="daily-back" data-gohome="1">← 回首页</button>';
+    h += '<div class="crumb"><span>每日一题</span><span>·</span><span>' + mdLabel() + "</span><span>·</span><span>" +
+      esc(bd ? bd.name : it.b) + "</span></div>";
+    h += '<div class="hero-mini daily-hero"><h1>这道大题，该答<em>哪三个原理</em></h1>' +
+      "<p>" + it.y + " 年第 " + it.n + " 题 · " + esc(it.t) + "。选项全部来自参考答案，选出真正用得上的 3 个。</p></div>";
+
+    h += '<div class="daily-q">' +
+      '<div class="dq-sec"><i>材料要义</i><p>' + esc(it.m) + "</p></div>" +
+      '<div class="dq-sec"><i>设问</i><p class="dq-ask">' + esc(it.q) + "</p></div></div>";
+
+    h += '<div class="daily-sec-title"><b>从 5 个考点里选 3 个</b><span>' +
+      (answered ? "已提交" : "已选 " + picks.length + "/3") + "</span></div>";
+    h += '<div class="daily-opts' + (answered ? " is-answered" : "") + '">';
+    it.o.forEach(function (txt, i) {
+      var right = it.a.indexOf(i) >= 0, picked = picks.indexOf(i) >= 0;
+      var cls = "", mark = "";
+      if (answered) {
+        if (right && picked) { cls = " right sel"; mark = "✓ 选对"; }
+        else if (right) { cls = " right miss"; mark = "应选"; }
+        else if (picked) { cls = " wrong sel"; mark = "✕ 错选"; }
+      } else if (picked) { cls = " sel"; mark = "已选"; }
+      h += '<button type="button" class="dopt' + cls + '" data-dopt="' + i + '"' + (answered ? " disabled" : "") + ">" +
+        "<b>" + DAILY_LETTER[i] + "</b><span>" + esc(txt) + "</span>" +
+        (mark ? '<i class="dopt-mark">' + mark + "</i>" : "") + "</button>";
+    });
+    h += "</div>";
+
+    if (!answered) {
+      h += '<div class="daily-act"><span class="daily-count">已选 ' + picks.length + " / 3</span>" +
+        '<button type="button" class="btn btn-primary" data-dsubmit="1"' + (picks.length === 3 ? "" : " disabled") +
+        ">提交答案</button></div>" +
+        '<div class="daily-tip">先看设问问的是“为什么 / 如何”，再从 5 个选项里挑能直接回答它的原理。多选、少选都算错。</div>';
+    } else {
+      h += '<div class="daily-result ' + (ok ? "ok" : "part") + '">' +
+        '<div class="dr-head"><b>' + (ok ? "全对 · 3/3" : "选对 " + hit + " / 3") + "</b>" +
+        "<span>连续 " + dailyStreak() + " 天</span></div>" +
+        '<p class="dr-line">' + (ok ? "三个落点都抓住了，明天换个板块继续。"
+          : hit === 2 ? "差一个：材料里还有一层意思没落到选项上。"
+            : "先对照参考答案的落点，再回看材料里的关键词。") + "</p>" +
+        '<div class="dr-pick"><span>正确答案 <b>' +
+        it.a.slice().sort(function (a, b) { return a - b; }).map(function (i) { return DAILY_LETTER[i]; }).join(" ") +
+        "</b></span><span>你的选择 <b>" +
+        picks.slice().sort(function (a, b) { return a - b; }).map(function (i) { return DAILY_LETTER[i]; }).join(" ") +
+        "</b></span></div>" +
+        '<div class="dr-sec"><i>参考答案要点</i><ul>' +
+        (it.ref || []).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul></div>" +
+        '<div class="dr-sec why"><i>为什么是这三个</i><p>' + esc(it.why) + "</p></div>" +
+        '<div class="dr-sec"><i>这道题指向</i><p>' + esc(it.th) + "</p></div>" +
+        ((it.k && it.k.length) ? '<div class="dr-k">' + it.k.map(function (id) {
+          var x = findItem(id);
+          return '<button type="button" class="chip chip-sm" data-jump="' + esc(id) + '">' + esc(x ? x.title : id) + "</button>";
+        }).join("") + "</div>" : "") +
+        '<div class="daily-act"><button type="button" class="btn btn-primary" data-dessay="' + it.y + "|" + it.n +
+        '">看完整答题逻辑</button><button type="button" class="btn btn-sm" data-dailyall="1">全部材料分析题</button></div>' +
+        "</div>";
+    }
+
+    h += dailyHistoryHtml();
+    h += "</div>";
+    host.innerHTML = h;
+    show("viewDaily");
+    $("topTitle").textContent = "每日一题";
+    $("topSub").textContent = mdLabel() + " · " + (bd ? bd.short : it.b) + " · " + it.y + " 年第 " + it.n + " 题";
+    $("progressStrip").hidden = true;
+    $("actionbar").hidden = true;
+  }
+
+  function dailyPick(i) {
+    var t = dailyToday(); if (!t || daily.rec[t.date]) return;
+    var picks = (daily.draft.d === t.date) ? daily.draft.picks.slice() : [];
+    var at = picks.indexOf(i);
+    if (at >= 0) picks.splice(at, 1);
+    else if (picks.length >= 3) { toast("只能选 3 个：先取消一个再选"); return; }
+    else picks.push(i);
+    daily.draft = { d: t.date, picks: picks };
+    saveDaily();
+    renderDaily();
+  }
+  function dailySubmit() {
+    var t = dailyToday(); if (!t || daily.rec[t.date]) return;
+    var picks = (daily.draft.d === t.date) ? daily.draft.picks.slice() : [];
+    if (picks.length !== 3) { toast("先选满 3 个考点"); return; }
+    var it = t.it;
+    var hit = picks.filter(function (x) { return it.a.indexOf(x) >= 0; }).length;
+    daily.rec[t.date] = { id: it.id, b: it.b, picks: picks, ok: hit === 3 ? 1 : 0, hit: hit, at: Date.now() };
+    daily.draft = { d: "", picks: [] };
+    saveDaily();
+    renderDaily();
+    if (hit === 3) toast("全对 · 三个落点都抓住了");
+    var el = $("viewDaily").querySelector(".daily-result");
+    if (el) setTimeout(function () { try { el.scrollIntoView({ block: "start", behavior: "smooth" }); } catch (e) {} }, 140);
+  }
+  function openDaily() {
+    closeSidebar();
+    if (!dailyBank().length) { toast("每日一题数据未加载，联网后重进即可"); return; }
+    renderDaily();
+  }
+  /* 答完后跳到材料分析题里这道题的完整答题逻辑，并展开定位 */
+  function openEssayAt(y, n) {
+    efilter.board = "all"; efilter.year = "all";
+    eOpen[y + "." + n] = true;
+    var p = renderEssay();
+    (p && p.then ? p : Promise.resolve()).then(function () {
+      setTimeout(function () {
+        var el = document.getElementById("essay-" + y + "-" + n);
+        if (el && el.scrollIntoView) { try { el.scrollIntoView({ block: "start", behavior: "smooth" }); } catch (e) {} }
+      }, 120);
+    });
+  }
+
   /* ---------------- 搜索 ---------------- */
   function openSearch() {
     $("searchOverlay").hidden = false;
@@ -2873,7 +3122,7 @@
   }
 
   function renderEssay() {
-    Promise.all([loadEssay(), loadAll()]).then(function (r) {
+    return Promise.all([loadEssay(), loadAll()]).then(function (r) {
       var bank = r[0] || [];
       indexAll();
       var T = essayTips();
@@ -2946,7 +3195,7 @@
       list.forEach(function (e) {
         var key = e.y + "." + e.n;
         var open = !!eOpen[key];
-        h += '<article class="essay-item' + (open ? " open" : "") + '">';
+        h += '<article id="essay-' + e.y + '-' + e.n + '" class="essay-item' + (open ? " open" : "") + '">';
         h += '<button type="button" class="essay-head" data-etoggle="' + key + '">' +
           '<span class="ey">' + e.y + "·" + e.n + "</span>" +
           '<span class="et">' + esc(e.t) + "</span>" +
@@ -3417,8 +3666,10 @@
     $("resetBtn").onclick = function () {
       if (!confirm("确定清空全部学习进度？")) return;
       progress = {};
+      daily = blankDaily();
       state.index = 0; state.page = 0;
       delRec(userKey(STORE_KEY));            // 直接从数据库删除该账号的进度记录
+      delRec(userKey(DAILY_KEY));            // 每日一题的答题记录一并清掉
       renderSidebar(); renderHome(); toast("当前账号的学习进度已清空");
     };
     $("searchBtn").onclick = openSearch;
@@ -3436,6 +3687,7 @@
     $("bsBtn").onclick = function () { openSprint("bs"); };
     $("pairBtn").onclick = function () { openSprint("pair"); };
     $("annivBtn").onclick = function () { openSprint("anniv"); };
+    if ($("dailyBtn")) $("dailyBtn").onclick = openDaily;
     $("analysisBtn").onclick = function () { renderAnalysis(wrongCount() ? "weak" : "now"); };
     viewBind();
     /* 动效绑定：刻度条滚动时做中心聚焦；窗口尺寸变化时重排指示条 */
@@ -3460,6 +3712,22 @@
       var el = t.closest ? t : null;
       function up(sel) { return t.closest ? t.closest(sel) : null; }
 
+      var gh = up("[data-gohome]");
+      if (gh) { goHome(); return; }
+      var dly = up("[data-daily]");
+      if (dly) { openDaily(); return; }
+      var dopt = up("[data-dopt]");
+      if (dopt) { dailyPick(parseInt(dopt.getAttribute("data-dopt"), 10)); return; }
+      var dsub = up("[data-dsubmit]");
+      if (dsub) { dailySubmit(); return; }
+      var dessa = up("[data-dessay]");
+      if (dessa) {
+        var dy = String(dessa.getAttribute("data-dessay")).split("|");
+        openEssayAt(parseInt(dy[0], 10), parseInt(dy[1], 10));
+        return;
+      }
+      var dall = up("[data-dailyall]");
+      if (dall) { renderEssay(); return; }
       var hm = up("[data-home]");
       if (hm) { openSprint(hm.getAttribute("data-home")); return; }
       var ph = up("[data-pairhide]");
@@ -3777,7 +4045,7 @@
   var authTab = "login";
   function renderAuth(msg) {
     document.body.classList.add("auth-mode");
-    if (state.user) { state.user = null; progress = {}; wrong = blankWrong(); }
+    if (state.user) { state.user = null; progress = {}; wrong = blankWrong(); daily = blankDaily(); }
     syncUserUI();
     var a = readAccounts();
     var names = Object.keys(a.users);
@@ -3930,6 +4198,7 @@
     state.user = name || null;
     progress = loadProgress();
     wrong = loadWrong();
+    daily = loadDaily();
     document.body.classList.remove("auth-mode");
     authTab = "login";                 // 下次再出现登录页时，默认就是「登录」而不是注册
     syncUserUI();

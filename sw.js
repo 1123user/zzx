@@ -6,29 +6,30 @@
       activate 时清理旧版本缓存并通知页面「新版本已就绪」；
    4) 预缓存与所有网络请求均有兜底，任何一步失败都不会把资源请求打死。
 */
-const CACHE = 'zzx-shell-v32';
+const CACHE = 'zzx-shell-v34';
 /* 配图为 WebP，缓存名与内容版本对应；改名会自动清理旧图片缓存 */
 const RUNTIME = 'zzx-runtime-v14';
 
 const SHELL = [
   './',
   './index.html',
-  './css/app.css?v=32',
-  './js/theme.js?v=32',
-  './js/pwa.js?v=32',
-  './js/app.js?v=32',
+  './css/app.css?v=34',
+  './js/theme.js?v=34',
+  './js/pwa.js?v=34',
+  './js/app.js?v=34',
   './js/data/sg.js',
   './js/data/sgdoc.js',
   './js/data/mao.js',
   './js/data/my.js',
   './js/data/sf.js',
   './js/data/xc.js',
-  './js/data/imgsize.js?v=32',
-  './js/data/zhenti-stat.js?v=32',
-  './js/data/tier.js?v=32',
+  './js/data/imgsize.js?v=34',
+  './js/data/zhenti-stat.js?v=34',
+  './js/data/tier.js?v=34',
   './js/data/my-pair.js',
   './js/data/sg-anniv.js',
-  './js/data/beisong.js?v=32',
+  './js/data/beisong.js?v=34',
+  './js/data/daily.js?v=34',
   './icon.svg',
   './icons/icon-180.png?v=2',
   './icons/icon-192.png?v=2',
@@ -60,23 +61,6 @@ function safePut(cacheName, key, res) {
     const copy = res.clone();
     caches.open(cacheName).then((c) => c.put(key, copy)).catch(function () {});
   } catch (e) { /* 写入失败不影响页面 */ }
-}
-
-/* 后台静默校验更新：结果写回缓存，供下次打开直接使用。
-   onlyIfHtml：仅当响应确实是 HTML 时才写进外壳缓存——
-   否则任何同源导航（例如跳到 /js/xxx.js）都会把非页面内容写成 index.html，污染外壳（缓存投毒） */
-function revalidate(url, req, cacheName, key, onlyIfHtml) {
-  return fetch(netRequest(url.href, true))
-    .then((res) => {
-      if (onlyIfHtml) {
-        const ct = (res.headers.get('content-type') || '').toLowerCase();
-        const isPage = ct.indexOf('text/html') >= 0;
-        if (!isPage) return res;                    // 不是页面：只用它本次响应，绝不写入外壳缓存
-      }
-      safePut(cacheName, key || url.href, res);
-      return res;
-    })
-    .catch(function () { return fetch(req); });
 }
 
 self.addEventListener('install', (e) => {
@@ -184,13 +168,24 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // 代码与数据：缓存秒出（后台校验更新），无缓存才等网络
-  const fresh = revalidate(url, req, CACHE);
-  e.waitUntil(fresh.catch(function () {}));
-  const bare = new URL(url.pathname, self.location.origin).href;   // 去掉 ?v= 的同名资源
+  /* 代码与数据：缓存秒出 + 后台静默校验；没有缓存才等网络。
+     注意：网络请求与响应不能和 waitUntil 共用同一个 Response Promise——
+     两者同时消费同一个响应时，本地开发服务器（缺 Cache-Control）会直接 ERR_FAILED，
+     表现为 essay.js / quiz.js 这类「不预缓存、用到才拉」的文件永远加载不出来。
+     这里把「返回给页面的响应」与「写缓存的后台请求」拆成两个独立请求。 */
   e.respondWith(
-    caches.match(req)
-      .then((cached) => cached || caches.match(bare) || fresh)
-      .catch(function () { return fresh; })
+    caches.match(req).then(function (cached) {
+      const net = fetch(netRequest(url.href, true))
+        .then(function (res) {
+          if (res && res.status === 200 && res.type !== 'opaque') safePut(CACHE, url.href, res);
+          return res;
+        })
+        .catch(function () { return fetch(req); });
+      if (cached) {
+        e.waitUntil(net.catch(function () {}));
+        return cached;
+      }
+      return net;
+    }).catch(function () { return fetch(req); })
   );
 });
