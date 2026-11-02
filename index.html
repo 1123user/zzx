@@ -8,8 +8,8 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="format-detection" content="telephone=no">
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#181b1e" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fdfaf3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#181e1a" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- 状态栏用 default（不透明）：iOS 26 的 Liquid Glass 会在 black-translucent 下
@@ -19,17 +19,18 @@
 <meta name="apple-mobile-web-app-title" content="政治线">
 <meta name="description" content="考研政治五大板块：史纲时间线、毛中特理论脉络、马原知识树、思修法治主题、形势与政策年度清单，事件—会议—文献三层锚点互链">
 <title>政治线 · 考研政治五大板块</title>
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon.svg?v=2" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-180.png?v=2">
 <link rel="manifest" href="manifest.json">
 
-<script src="js/theme.js?v=38"></script>
+<script src="js/theme.js?v=39"></script>
 <style>/* 首屏关键样式：内联，冷启动时 HTML 一到就能立刻画出界面骨架，无需等待样式表往返 */
-:root{--bg:#f6f4ef;--bg-elevated:#ffffff;--bg-sunken:#eeeae2;--bg-hover:#f0ece4;--line:#e2ddd2;--line-soft:#ece7dd;
-  --fg:#1d1b18;--fg-2:#57534b;--fg-3:#8d8880;--accent:#b8322f;--r:14px;--r-sm:9px;
+:root{--bg:#f7f3e8;--bg-elevated:#fdfaf3;--bg-sunken:#efe9db;--bg-hover:#f2ecdf;--line:#e1d8c7;--line-soft:#ece5d7;
+  --fg:#20241f;--fg-2:#575c52;--fg-3:#6f7368;--accent:#2f5a42;--accent-soft:#e6efe6;--accent-solid:#2f5a42;
+  --flag:#b23a34;--flag-solid:#b23a34;--success:#26795a;--success-solid:#26795a;--amber:#8f6620;--amber-solid:#8f6620;--on-board:#fff;--r:14px;--r-sm:9px;
   --sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif}
-html[data-theme="dark"]{--bg:#0f1113;--bg-elevated:#181b1e;--bg-sunken:#0b0d0f;--bg-hover:#20242a;--line:#2b3036;--line-soft:#232729;--fg:#e9e6e1;--fg-2:#a8a49d;--fg-3:#75716b;--accent:#e0685f}
-@media (prefers-color-scheme:dark){html[data-theme="auto"]{--bg:#0f1113;--bg-elevated:#181b1e;--bg-sunken:#0b0d0f;--bg-hover:#20242a;--line:#2b3036;--line-soft:#232729;--fg:#e9e6e1;--fg-2:#a8a49d;--fg-3:#75716b;--accent:#e0685f}}
+html[data-theme="dark"]{--bg:#101512;--bg-elevated:#181e1a;--bg-sunken:#0b0f0c;--bg-hover:#222a24;--line:#2c3530;--line-soft:#232b26;--fg:#e9e7df;--fg-2:#a9a89e;--fg-3:#8b9083;--accent:#8fc7a8;--accent-soft:#1a3024;--accent-solid:#3f7a5c;--flag:#e07a70;--flag-solid:#a94842;--success:#7fd8a9;--success-solid:#2f7d5c;--amber:#d9b36a;--amber-solid:#8a6520;--on-board:#101512}
+@media (prefers-color-scheme:dark){html[data-theme="auto"]{--bg:#101512;--bg-elevated:#181e1a;--bg-sunken:#0b0f0c;--bg-hover:#222a24;--line:#2c3530;--line-soft:#232b26;--fg:#e9e7df;--fg-2:#a9a89e;--fg-3:#8b9083;--accent:#8fc7a8;--accent-soft:#1a3024;--accent-solid:#3f7a5c;--flag:#e07a70;--flag-solid:#a94842;--success:#7fd8a9;--success-solid:#2f7d5c;--amber:#d9b36a;--amber-solid:#8a6520;--on-board:#101512}}
 *,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none !important}
 html,body{height:100%;margin:0;color:var(--fg);font:15px/1.72 var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
@@ -60,15 +61,15 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
 .auth-card{background:var(--bg-elevated);border:1px solid var(--line);border-radius:var(--r);padding:20px 18px}
 .auth-tabs{display:flex;gap:6px;margin:0 0 16px}
 .auth-tab{flex:1;padding:9px;border-radius:var(--r-sm);background:var(--bg-sunken);font-size:13.5px;color:var(--fg-2);border:1px solid var(--line)}
-.auth-tab.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.auth-tab.on{background:var(--accent-solid);color:#fff;border-color:var(--accent-solid);font-weight:600}
 .auth-field{margin:0 0 12px}
 .auth-field label{display:block;font-size:12px;color:var(--fg-3);margin:0 0 5px}
 .auth-field input{width:100%;padding:11px 12px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--bg-sunken);font-size:15px;color:var(--fg)}
 .auth-field input:focus{outline:none;border-color:var(--accent)}
 .auth-actions{display:flex;gap:8px;margin-top:16px}
 .auth-btn{flex:1;padding:12px;border-radius:var(--r-sm);background:var(--bg-sunken);border:1px solid var(--line);font-size:14px;color:var(--fg)}
-.auth-btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
-.auth-msg{min-height:18px;font-size:12.5px;color:var(--accent);margin:8px 0 0}
+.auth-btn.primary{background:var(--accent-solid);color:#fff;border-color:var(--accent-solid);font-weight:600}
+.auth-msg{min-height:18px;font-size:12.5px;color:var(--amber);margin:8px 0 0}
 .auth-note{font-size:12px;color:var(--fg-3);line-height:1.75;margin:12px 0 0}
 .auth-check{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fg-2);margin:10px 0 0}
 .auth-switch{margin-top:16px;padding-top:14px;border-top:1px solid var(--line-soft);text-align:center;font-size:12.5px;color:var(--fg-3)}
@@ -84,8 +85,8 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
   .hero h1{font-size:21px}
 }
 </style>
-<link id="appCss" rel="stylesheet" href="css/app.css?v=38" media="print">
-<noscript><link rel="stylesheet" href="css/app.css?v=38"></noscript>
+<link id="appCss" rel="stylesheet" href="css/app.css?v=39" media="print">
+<noscript><link rel="stylesheet" href="css/app.css?v=39"></noscript>
 </head>
 <body>
 <div class="app">
@@ -93,7 +94,7 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
 
   <aside class="sidebar" id="sidebar" aria-label="侧边栏">
     <div class="brand">
-      <img class="logo" src="icon.svg" alt="" width="34" height="34">
+      <img class="logo" src="icon.svg?v=2" alt="" width="34" height="34">
       <div class="brand-text">
         <strong>政治线</strong>
         <span>考研政治 · 五大板块</span>
@@ -248,12 +249,12 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
 
 <div class="toast" id="toast" hidden></div>
 
-<script src="js/data/imgsize.js?v=38"></script>
-<script src="js/data/zhenti-stat.js?v=38"></script>
-<script src="js/data/tier.js?v=38"></script>
-<script src="js/data/beisong.js?v=38"></script>
-<script src="js/data/daily.js?v=38"></script>
-<script src="js/app.js?v=38"></script>
-<script src="js/pwa.js?v=38"></script>
+<script src="js/data/imgsize.js?v=39"></script>
+<script src="js/data/zhenti-stat.js?v=39"></script>
+<script src="js/data/tier.js?v=39"></script>
+<script src="js/data/beisong.js?v=39"></script>
+<script src="js/data/daily.js?v=39"></script>
+<script src="js/app.js?v=39"></script>
+<script src="js/pwa.js?v=39"></script>
 </body>
 </html>

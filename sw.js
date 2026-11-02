@@ -6,30 +6,30 @@
       activate 时清理旧版本缓存并通知页面「新版本已就绪」；
    4) 预缓存与所有网络请求均有兜底，任何一步失败都不会把资源请求打死。
 */
-const CACHE = 'zzx-shell-v38';
+const CACHE = 'zzx-shell-v39';
 /* 配图为 WebP，缓存名与内容版本对应；改名会自动清理旧图片缓存 */
 const RUNTIME = 'zzx-runtime-v14';
 
 const SHELL = [
   './',
   './index.html',
-  './css/app.css?v=38',
-  './js/theme.js?v=38',
-  './js/pwa.js?v=38',
-  './js/app.js?v=38',
+  './css/app.css?v=39',
+  './js/theme.js?v=39',
+  './js/pwa.js?v=39',
+  './js/app.js?v=39',
   './js/data/sg.js',
   './js/data/sgdoc.js',
   './js/data/mao.js',
   './js/data/my.js',
   './js/data/sf.js',
   './js/data/xc.js',
-  './js/data/imgsize.js?v=38',
-  './js/data/zhenti-stat.js?v=38',
-  './js/data/tier.js?v=38',
+  './js/data/imgsize.js?v=39',
+  './js/data/zhenti-stat.js?v=39',
+  './js/data/tier.js?v=39',
   './js/data/my-pair.js',
   './js/data/sg-anniv.js',
-  './js/data/beisong.js?v=38',
-  './js/data/daily.js?v=38',
+  './js/data/beisong.js?v=39',
+  './js/data/daily.js?v=39',
   './icon.svg',
   './icons/icon-180.png?v=2',
   './icons/icon-192.png?v=2',
