@@ -3096,19 +3096,29 @@
   var efilter = { board: "all", year: "all" };
   var eOpen = {};
 
+  /* 材料分析题按需加载：失败自动重试（最多 3 次），全部失败也不缓存空结果，
+     下次点「完整答题逻辑」会重新拉——首次进站时 SW 正在预缓存，偶发抢不到带宽。 */
   function loadEssay() {
-    if (essayBank) return Promise.resolve(essayBank);
+    if (essayBank && essayBank.length) return Promise.resolve(essayBank);
     if (essayLoading) return essayLoading;
-    essayLoading = ESSAY_FILES.reduce(function (p, src) {
-      return p.then(function () {
-        return new Promise(function (res) {
-          var s = document.createElement("script");
-          s.src = src; s.onload = res; s.onerror = res;
-          document.head.appendChild(s);
-        });
+    var tries = 0;
+    function attempt() {
+      return new Promise(function (res) {
+        var s = document.createElement("script");
+        s.src = ESSAY_FILES[0] + (tries ? "?retry=" + tries : "");
+        s.onload = function () { res(true); };
+        s.onerror = function () { res(false); };
+        document.head.appendChild(s);
+      }).then(function (ok) {
+        if (ok && window.ZZX_ESSAY && window.ZZX_ESSAY.length) return true;
+        if (tries < 2) { tries++; return attempt(); }
+        return false;
       });
-    }, Promise.resolve()).then(function () {
-      essayBank = (window.ZZX_ESSAY || []).slice().sort(function (a, b) { return (a.y - b.y) || (a.n - b.n); });
+    }
+    essayLoading = attempt().then(function (ok) {
+      var bank = (window.ZZX_ESSAY || []).slice().sort(function (a, b) { return (a.y - b.y) || (a.n - b.n); });
+      if (!ok || !bank.length) { essayBank = null; essayLoading = null; return []; }
+      essayBank = bank;
       return essayBank;
     });
     return essayLoading;
@@ -3135,6 +3145,16 @@
   function renderEssay() {
     return Promise.all([loadEssay(), loadAll()]).then(function (r) {
       var bank = r[0] || [];
+      if (!bank.length) {
+        $("viewEssay").innerHTML = '<div class="wrap"><div class="empty">材料分析题数据没有加载成功<br>' +
+          '<button type="button" class="boot-retry" data-essayretry="1">重新加载</button></div></div>';
+        show("viewEssay");
+        $("topTitle").textContent = "材料分析题";
+        $("topSub").textContent = "加载失败";
+        $("progressStrip").hidden = true;
+        $("actionbar").hidden = true;
+        return;
+      }
       indexAll();
       var T = essayTips();
       var cnt = {};
@@ -3739,6 +3759,8 @@
       }
       var dall = up("[data-dailyall]");
       if (dall) { renderEssay(); return; }
+      var ert = up("[data-essayretry]");
+      if (ert) { essayBank = null; essayLoading = null; renderEssay(); return; }
       var hm = up("[data-home]");
       if (hm) { openSprint(hm.getAttribute("data-home")); return; }
       var ph = up("[data-pairhide]");
