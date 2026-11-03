@@ -4363,6 +4363,8 @@
       var okBoards = BOARDS.filter(function (b) { return getBoard(b.id); }).length;
       if (!okBoards) { bootError("数据未能加载"); return; }   // 全部失败：显示可重试提示，不留空首页
       renderHome();
+      /* 深链：#bs 直达背诵中心（手机存成书签/主屏图标，打开就是背诵） */
+      if ((location.hash || "").toLowerCase().replace(/^#/, "") === "bs") openSprint("bs");
       var missing = BOARDS.length - okBoards;
       if (missing) toast(missing + " 个板块的数据未加载成功，可重试或稍后再打开");  // 部分失败：明确告知
       /* 纯背诵模式：题库（自测 543 + 真题 462，约 272KB）不再预加载 */
