@@ -961,6 +961,38 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
 .bs-title{flex:1;min-width:0;font-size:14.5px;line-height:1.55}
 .bs-item.is-done .bs-title{color:var(--fg-3)}
 .bs-lv{flex:0 0 auto;font-size:10px;padding:1px 6px;border-radius:5px;background:var(--flag-soft);color:var(--flag);margin-top:3px}
+.bs-lv.is-lv1{background:var(--amber-soft);color:var(--amber)}
+/* 背诵中心·重点红标：红＝帽子词（选择题坑），橙＝次级帽子，深红整句＝帽子题考点 */
+.bs-kw{font-style:normal;color:var(--flag);font-weight:600}
+.bs-kw2{font-style:normal;color:var(--amber);font-weight:600}
+.bs-hat,.bs-hat-demo{font-style:normal;color:var(--flag);font-weight:700;
+  border-bottom:1.5px solid var(--flag);padding-bottom:.5px;cursor:pointer}
+.bs-hat-demo{cursor:inherit}
+.no-bskw .bs-kw,.no-bskw .bs-kw2{color:inherit;font-weight:inherit}
+.no-bskw .bs-hat{color:inherit;font-weight:inherit;border-bottom:0}
+.bs-body.bs-hidden .bs-hat{color:transparent !important;border-bottom-color:transparent}
+.bs-legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin:0 0 12px;font-size:11.5px;color:var(--fg-3)}
+.bs-legend span{display:inline-flex;align-items:center;gap:5px}
+.bs-legend .lg{width:9px;height:9px;border-radius:2px;background:var(--fg-3);flex:0 0 auto}
+.bs-legend .lg-kw{background:var(--flag)}
+.bs-legend .lg-kw2{background:var(--amber)}
+.bs-legend .lg-hat{background:var(--flag);height:3px;border-radius:2px}
+.bs-legend .lg-lv2{background:var(--flag-soft);border:1px solid var(--flag)}
+.bs-legend .lg-lv1{background:var(--amber-soft);border:1px solid var(--amber)}
+.bs-hats{margin:9px 0 0;border-top:1px dashed var(--line);padding-top:7px}
+.bs-hats summary{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--flag);cursor:pointer;list-style:none}
+.bs-hats summary::-webkit-details-marker{display:none}
+.bs-hats summary i{font-style:normal;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:5px;
+  background:var(--flag-soft);color:var(--flag)}
+.bs-hats-hint{margin-left:auto;color:var(--fg-3);font-size:11px}
+.bs-hats ul{margin:7px 0 0;padding:0;list-style:none}
+.bs-hats li{font-size:12.5px;line-height:1.8;color:var(--fg-2);padding:3px 7px;border-radius:6px;
+  display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
+.bs-hats li b{color:var(--fg);font-weight:600}
+.bs-hats li em{font-style:normal;color:var(--flag);font-weight:600}
+.bs-hats li span{font-size:10.5px;color:var(--fg-3);margin-left:auto}
+.bs-hats li.is-on{background:var(--flag-soft)}
+.bs-hats-src{margin:5px 0 0;font-size:10.5px;color:var(--fg-3)}
 .bs-check{flex:0 0 auto;width:26px;height:26px;border-radius:8px;border:1.5px solid var(--line);
   background:var(--bg-sunken);font-size:13px;line-height:1;color:#fff;display:grid;place-items:center}
 .bs-check.on{background:var(--accent-solid);border-color:var(--accent)}

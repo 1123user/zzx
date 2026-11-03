@@ -781,6 +781,58 @@
     return (d.items || []).filter(function (it) { return it.anniv; });
   }
 
+  /* ---------------- 背诵中心·重点红标 ----------------
+     两层标注，让背诵有重心：
+     ① 红字＝帽子词（根本/本质/核心/唯一/首要任务/必由之路…），词表与政治站「帽子题专题」
+        的分类同源，选择题就在这些词上设坑；橙色＝次级帽子（前提/基础/关键/保证/法宝）。
+     ② 深红整句＝帽子题考点，原文片段来自 js/data/bs-hat.js（189 条帽子题在同一板块内
+        归一化匹配到背诵正文的结果），点开能看「主体 是 帽子」的完整搭配。
+     词表先按长度降序，避免「根本」吃掉「根本保证」；副词/动词用法的假阳性单独还原。 */
+  var BS_KW_STRONG = ["最根本", "最本质", "最鲜明", "最显著", "最高原则", "最高理想", "唯一标准", "唯一源泉",
+    "根本政治前提", "根本遵循", "根本宗旨", "根本立场", "根本目的", "根本目标", "根本任务", "根本方法",
+    "根本动力", "根本保证", "根本要求", "根本属性", "本质要求", "本质特征", "本质属性", "本质规定",
+    "核心要义", "核心地位", "显著标志", "显著特征", "显著优势", "鲜明特征", "集中体现", "精神内核",
+    "价值遵循", "价值准则", "价值取向", "必由之路", "总目标", "总任务", "战略目标", "首要任务", "中心任务",
+    "中心环节", "出发点", "落脚点", "总抓手", "试金石", "生命线", "压舱石", "定盘星", "总开关", "主心骨",
+    "关键一招", "重要法宝", "最大增量", "最大公约数", "决定因素", "第一动力", "决定性", "首要", "唯一",
+    "根本", "核心", "本质", "实质", "最大", "最高", "底线", "红线", "灵魂", "精髓", "宗旨", "标志"];
+  var BS_KW_SOFT = ["内在要求", "必要条件", "重要支柱", "重要组成部分", "前提", "基础", "关键", "保证", "保障", "法宝"];
+  function bsRe(list) {
+    return new RegExp("(" + list.slice().sort(function (a, b) { return b.length - a.length; }).join("|") + ")", "g");
+  }
+  var BS_RE_STRONG = bsRe(BS_KW_STRONG), BS_RE_SOFT = bsRe(BS_KW_SOFT);
+  function bsHi(text, key) {
+    var t = esc(text);
+    var hats = (window.ZZX_BS_HAT && window.ZZX_BS_HAT.byKey && window.ZZX_BS_HAT.byKey[key]) || [];
+    var store = [];
+    /* ① 先占位长片段（帽子题整句），避开后面的分词标注 */
+    hats.forEach(function (h) {
+      if (!h.t) return;
+      var frag = esc(h.t);
+      var i = t.indexOf(frag);
+      if (!frag || i < 0) return;
+      store.push('<em class="bs-hat" data-bshat="' + esc(h.id) + '">' + frag + "</em>");
+      t = t.slice(0, i) + "\u0001" + (store.length - 1) + "\u0001" + t.slice(i + frag.length);
+    });
+    /* ② 词级帽子词 */
+    t = t.replace(BS_RE_STRONG, '<em class="bs-kw">$1</em>').replace(BS_RE_SOFT, '<em class="bs-kw2">$1</em>');
+    /* ③ 副词/动词用法不是帽子，还原掉，避免满屏假红字 */
+    t = t.replace(/<em class="bs-kw">标志<\/em>(着|了)/g, "标志$1")
+      .replace(/<em class="bs-kw">根本<\/em>(上|消除|改变|转变|解决|不可能|没有|不)/g, "根本$1")
+      .replace(/<em class="bs-kw">本质<\/em>(上)/g, "本质$1")
+      .replace(/<em class="bs-kw">核心<\/em>(意识)/g, "核心$1");
+    /* ④ 还原片段 */
+    if (!store.length) return t;
+    return t.replace(/\u0001(\d+)\u0001/g, function (m, i) { return store[+i] || m; });
+  }
+  function bsHats(key) {
+    return (window.ZZX_BS_HAT && window.ZZX_BS_HAT.byKey && window.ZZX_BS_HAT.byKey[key]) || [];
+  }
+  var BS_KW_KEY = "zzx.bskw";
+  function bsKwOn() {
+    try { return localStorage.getItem(BS_KW_KEY) !== "0"; } catch (e) { return true; }
+  }
+
   /* ---------------- 动效基础（全站共用同一套运动规则） ----------------
      · 系统开启「减弱动态效果」时，所有动效瞬时完成（不是关掉功能）
      · 吸附滚动：中段加速、收尾快速贴住目标（磁吸的手感来自"速度逐渐变快"）
@@ -1258,6 +1310,7 @@
       pool.forEach(function (x) { if (pr && pr.done && pr.done[x.id]) dn++; });
     });
     var bsN = bsTotal();
+    var hatC = (window.ZZX_BS_HAT && window.ZZX_BS_HAT.meta && window.ZZX_BS_HAT.meta.counts) || {};
     var h = '<div class="wrap">';
     h += '<div class="hero"><h1>打开就<em>背</em>，背完就记住</h1>' +
       '<p>依据《2027 年考研政治考试大纲》梳理 · 马原 / 毛中特 / 史纲 / 思修法治 / 形策</p>' +
@@ -1276,8 +1329,9 @@
     h += '<div class="sec-title">背诵三件套</div><div class="cards">';
     h += '<button type="button" class="card sprint-card" data-home="bs" style="--cc:var(--c-my)">' +
       '<div class="card-top"><b>背诵中心</b><span class="bdg">' + (bsN || 92) + " 条</span></div>" +
-      "<p>27 届背诵清单：标题→线索→正文→方法论；遮住正文按键回忆，翻到哪背到哪。</p>" +
-      '<div class="mrow"><span>四部分 · 重点分级</span><span>手机离线可用</span></div></button>';
+      "<p>27 届背诵清单：红字＝帽子词、深红＝帽子题考点，标题旁标必背 / 重点；遮住正文按键回忆。</p>" +
+      '<div class="mrow"><span>红字重点' + (hatC.links ? " · 帽子题 " + hatC.links + " 处" : "") +
+      "</span><span>手机离线可用</span></div></button>";
     h += '<button type="button" class="card sprint-card" data-home="pair" style="--cc:var(--c-my)">' +
       '<div class="card-top"><b>马原 · 原理对材料</b><span class="bdg">18 原理</span></div>' +
       "<p>背完一句原理，立刻知道材料里出现哪句话就该答它；附三步答题框架与考纲落点。</p>" +
@@ -2230,7 +2284,7 @@
     return {
       hide: !!s.hide,
       part: s.part || 0,
-      filter: s.filter === "lv2" ? "lv2" : "all",
+      filter: s.filter === "lv2" ? "lv2" : (s.filter === "hot" ? "hot" : "all"),
       scroll: s.scroll || 0
     };
   }
@@ -2261,13 +2315,19 @@
     var st = bsState();
     var all = bsAll(D);
     var lv2 = all.filter(function (x) { return x.lv === 2; });
+    var hot = all.filter(function (x) { return x.lv >= 1; });
+    var hatN = all.filter(function (x) { return bsHats(x.key).length; }).length;
     var pi = Math.min(st.part, D.parts.length - 1);
     var part = D.parts[pi];
+    var kwOn = bsKwOn();
+    document.body.classList.toggle("no-bskw", !kwOn);
 
     var h = '<div class="wrap">';
     h += '<div class="crumb"><span>背诵中心</span><span>·</span><span>' + esc((D.source && D.source.title) || "27 届背诵清单") + "</span></div>";
     h += '<div class="hero-mini"><h1>打开就背，<em>' + all.length + " 条</em></h1>" +
-      '<p>先看线索回忆，再展开核对；不设打卡、不计进度，背到哪算哪。遮住正文可点一句露一句。</p></div>';
+      '<p><b class="bs-kw">红字</b>＝帽子词（根本 / 本质 / 核心 / 唯一 / 首要任务…），选择题就在这儿设坑；' +
+      '<b class="bs-hat-demo">深红整句</b>＝帽子题考点，' + hatN + " 条背诵正文里能直接对上帽子题，点一下看「主体 是 帽子」。" +
+      "先看线索回忆，再展开核对；遮住正文可点一句露一句。</p></div>";
 
     h += '<div class="bs-tabs">' + D.parts.map(function (p, i) {
       var n = 0;
@@ -2280,33 +2340,51 @@
 
     h += '<div class="bs-filters">' +
       '<button type="button" class="chip' + (st.filter === "all" ? " on" : "") + '" data-bsfilter="all">全部</button>' +
+      '<button type="button" class="chip' + (st.filter === "hot" ? " on" : "") + '" data-bsfilter="hot">只看重点 ' + hot.length + "</button>" +
       '<button type="button" class="chip' + (st.filter === "lv2" ? " on" : "") + '" data-bsfilter="lv2">只看必背 ' + lv2.length + "</button>" +
+      '<button type="button" class="chip' + (kwOn ? " on" : "") + '" data-bskw="1">' + (kwOn ? "红字已开" : "红字已关") + "</button>" +
       '<button type="button" class="chip' + (st.hide ? " on" : "") + '" data-bshide="1">' + (st.hide ? "正文已遮住" : "遮住正文") + "</button>" +
+      "</div>";
+    h += '<div class="bs-legend">' +
+      '<span><i class="lg lg-kw"></i>红字＝帽子词</span>' +
+      '<span><i class="lg lg-kw2"></i>橙字＝次级帽子</span>' +
+      '<span><i class="lg lg-hat"></i>深红＝帽子题考点（点一下）</span>' +
+      '<span><i class="lg lg-lv2"></i>必背</span><span><i class="lg lg-lv1"></i>重点</span>' +
       "</div>";
 
     h += (part.sections || []).map(function (s) {
       var groups = (s.groups || []).map(function (g) {
         var items = (g.items || []).filter(function (it) {
           if (st.filter === "lv2" && it.lv !== 2) return false;
+          if (st.filter === "hot" && it.lv < 1) return false;
           return true;
         });
         if (!items.length) return "";
         return '<div class="bs-group"><div class="bs-group-name">' + esc(g.name) + "</div>" +
           items.map(function (it) {
-            return '<div class="bs-item">' +
+            var hats = bsHats(it.key);
+            return '<div class="bs-item" data-bsitem="' + it.key + '">' +
               '<div class="bs-top">' +
               '<span class="bs-no">' + (it.no < 10 ? "0" : "") + it.no + "</span>" +
               '<b class="bs-title">' + esc(it.title) + "</b>" +
-              (it.lv === 2 ? '<span class="bs-lv">必背</span>' : "") +
+              (it.lv === 2 ? '<span class="bs-lv">必背</span>'
+                : it.lv === 1 ? '<span class="bs-lv is-lv1">重点</span>' : "") +
               "</div>" +
-              (it.clue ? '<div class="bs-clue"><i>线索</i>' + esc(it.clue) + "</div>" : "") +
+              (it.clue ? '<div class="bs-clue"><i>线索</i>' + bsHi(it.clue, it.key) + "</div>" : "") +
               '<div class="bs-body' + (st.hide ? " bs-hidden" : "") + '">' +
               (it.body || []).map(function (x, xi) {
-                return '<p data-bsrev="' + it.key + "|" + xi + '">' + esc(x) + "</p>";
+                return '<p data-bsrev="' + it.key + "|" + xi + '">' + bsHi(x, it.key) + "</p>";
               }).join("") +
               "</div>" +
-              (it.method ? '<div class="bs-method"><i>方法论</i>' + esc(it.method) + "</div>" : "") +
-              (it.why ? '<div class="bs-why"><i>陷阱</i>' + esc(it.why) + "</div>" : "") +
+              (it.method ? '<div class="bs-method"><i>方法论</i>' + bsHi(it.method, it.key) + "</div>" : "") +
+              (it.why ? '<div class="bs-why"><i>陷阱</i>' + bsHi(it.why, it.key) + "</div>" : "") +
+              (hats.length ? '<details class="bs-hats" data-bshats="' + it.key + '">' +
+                '<summary><i>帽子题</i>' + hats.length + ' 个考点<span class="bs-hats-hint">点开对答案</span></summary><ul>' +
+                hats.map(function (x) {
+                  return '<li data-hatid="' + esc(x.id) + '"><b>' + esc(x.s) + "</b> 是 <em>" + esc(x.p) +
+                    "</em><span>" + esc(x.c) + "</span></li>";
+                }).join("") +
+                '</ul><div class="bs-hats-src">来源：政治站「帽子题专题」189 条 · 正文里同一表述已标深红</div></details>' : "") +
               "</div>";
           }).join("") + "</div>";
       }).join("");
@@ -2338,7 +2416,8 @@
       }, { passive: true });
     }
     $("topTitle").textContent = "背诵中心";
-    $("topSub").textContent = all.length + " 条 · " + lv2.length + " 必背 · " + esc(part.abbr);
+    $("topSub").textContent = all.length + " 条 · " + lv2.length + " 必背 / " +
+      (hot.length - lv2.length) + " 重点 · " + esc(part.abbr);
     $("progressStrip").hidden = true;
     $("actionbar").hidden = true;
   }
@@ -3786,6 +3865,38 @@
       if (bsp) { var s1 = bsState(); s1.part = parseInt(bsp.getAttribute("data-bspart"), 10) || 0; bsSave(s1); renderBs(); return; }
       var bsf = up("[data-bsfilter]");
       if (bsf) { var s2 = bsState(); s2.filter = bsf.getAttribute("data-bsfilter"); bsSave(s2); renderBs(); return; }
+      var bkw = up("[data-bskw]");
+      if (bkw) {
+        try { localStorage.setItem(BS_KW_KEY, bsKwOn() ? "0" : "1"); } catch (e) {}
+        var s6 = bsState(); s6.scroll = $("viewBs").scrollTop || 0; bsSave(s6);
+        renderBs();
+        return;
+      }
+      /* 点深红片段：展开本条的「帽子题」清单、高亮对应那条，并吐一句完整搭配 */
+      var bht = up("[data-bshat]");
+      if (bht) {
+        var bbody = bht.closest(".bs-body");
+        if (bbody && bbody.classList.contains("bs-hidden")) {
+          var bp = bht.closest("p"); if (bp) bp.classList.add("is-reveal");
+          return;
+        }
+        var bItem = bht.closest(".bs-item");
+        var bDet = bItem && bItem.querySelector(".bs-hats");
+        var bId = bht.getAttribute("data-bshat");
+        if (bDet) {
+          bDet.open = true;
+          var bLis = bDet.querySelectorAll("li");
+          Array.prototype.forEach.call(bLis, function (li) {
+            var on = li.getAttribute("data-hatid") === bId;
+            li.classList.toggle("is-on", on);
+          });
+        }
+        var bKey = bItem ? bItem.getAttribute("data-bsitem") : "";
+        var bHit = null;
+        bsHats(bKey).forEach(function (x) { if (x.id === bId) bHit = x; });
+        if (bHit) toast("帽子题：" + bHit.s + " 是 " + bHit.p);
+        return;
+      }
       var bsh = up("[data-bshide]");
       if (bsh) { var s3 = bsState(); s3.hide = !s3.hide; bsSave(s3); renderBs(); return; }
       /* 逐句揭示优先：点到某一段就只露那一段（比整块揭开更接近主动回忆）；

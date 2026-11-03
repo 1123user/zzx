@@ -47,7 +47,8 @@ def main():
                         "body": [x for x in it.get("body", []) if x.strip()],
                         "method": it.get("method", "").strip(),
                         "note": it.get("note", "").strip(),
-                        "lv": lv.get(it["title"], 1),
+                        # 0 = 未裁定（不显示标签）；1 = 重点；2 = 必背
+                        "lv": lv.get(it["title"], 0),
                         "why": why.get(it["title"], ""),
                     })
                 groups.append({"name": g["name"], "items": items})
