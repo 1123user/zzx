@@ -185,6 +185,9 @@ button{cursor:pointer;border:0;background:none}
 .module-item:hover{background:var(--bg-hover)}
 .module-item.active{background:var(--bg-sunken);color:var(--fg);font-weight:600}
 .module-item .mc{font-size:10.5px;color:var(--fg-3);flex:0 0 auto}
+/* 冲刺模式下整单元被收起（文献专项等）：数字写「全量 N」并置灰，点了会自动切全量 */
+.module-item.is-off{opacity:.62}
+.module-item.is-off .mc{color:var(--fg-3)}
 
 /* ---------------- 主区 ---------------- */
 .main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}

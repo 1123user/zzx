@@ -926,6 +926,24 @@
     var p = progress[bid];
     return p && p.done ? Object.keys(p.done).length : 0;
   }
+  /* 计数口径（2026-11-09 统一）：一律按「当前阅读流里真正点得到的条目」算。
+     冲刺模式收起 34 篇文献 + 20 条过程细节后，史纲实际只有 51 条可点；
+     若仍拿原始 105 条当分母，侧栏写「24/105」，既与首页「51 个考点」矛盾，
+     也让人以为还剩 81 条没背。切「全量」后这些数字自然回到 105。 */
+  function flowItems(bid) {
+    var d = getBoard(bid); if (!d) return [];
+    return (d.items || []).filter(function (it) { return inMainline(it, bid); });
+  }
+  function flowTotal(bid) { return flowItems(bid).length; }
+  function flowDone(bid) {
+    var p = progress[bid];
+    if (!p || !p.done) return 0;
+    return flowItems(bid).filter(function (it) { return p.done[it.id]; }).length;
+  }
+  function boardRawTotal(bid) {
+    var d = getBoard(bid);
+    return d ? (d.items || []).length : 0;
+  }
   /* 位置记忆：记录每个板块最后浏览到的考点与分页，下次进入自动定位 */
   function savePos(bid, id, page) {
     if (!bid || !id) return;
@@ -1252,12 +1270,13 @@
   /* ---------------- 侧边栏 ---------------- */
   function renderSidebar() {
     $("subjectNav").innerHTML = BOARDS.map(function (b) {
-      var d = getBoard(b.id);
-      var total = d ? (d.items || []).length : 0;
+      var total = flowTotal(b.id);
+      var raw = boardRawTotal(b.id);
+      var tip = state.full || raw === total ? "" : ' title="主线 ' + total + " 条 · 全量 " + raw + ' 条"';
       return '<button type="button" class="subject-item' + (state.boardId === b.id ? " active" : "") +
-        '" data-board="' + b.id + '" style="--dot:' + b.color + '">' +
+        '" data-board="' + b.id + '" style="--dot:' + b.color + '"' + tip + ">" +
         '<span class="dot"></span><span class="name">' + esc(b.short) + "</span>" +
-        '<span class="count">' + doneCount(b.id) + "/" + total + "</span></button>";
+        '<span class="count">' + flowDone(b.id) + "/" + total + "</span></button>";
     }).join("");
 
     $("kindFilter").innerHTML = KINDS.map(function (k) {
@@ -1269,16 +1288,22 @@
       $("moduleBlock").hidden = false;
       $("moduleLabel").textContent = BOARDS.filter(function (b) { return b.id === state.boardId; })[0].short + " · 单元";
       $("moduleList").innerHTML = (state.kind ? "" : "") + d.units.map(function (u) {
-        var n = (d.items || []).filter(function (it) { return it.unit === u[0]; }).length;
+        var its = (d.items || []).filter(function (it) { return it.unit === u[0] && inMainline(it, state.boardId); });
         var p = progress[state.boardId] || { done: {} };
-        var dn = (d.items || []).filter(function (it) { return it.unit === u[0] && p.done && p.done[it.id]; }).length;
-        return '<button type="button" class="module-item' + (state.unitId === u[0] ? " active" : "") +
-          '" data-unit="' + u[0] + '"><span>' + esc(u[2]) + '</span><span class="mc">' + dn + "/" + n + "</span></button>";
+        var dn = its.filter(function (it) { return p.done && p.done[it.id]; }).length;
+        var n = its.length;
+        /* 冲刺模式下整个单元都被收起的（文献专项等）：不写 0/0，改写「全量 N」，
+           置灰表示当前点不到，点了会自动切全量（见 openUnit） */
+        var rawN = (d.items || []).filter(function (it) { return it.unit === u[0]; }).length;
+        var zero = !n && rawN > 0;
+        var label = zero ? "全量 " + rawN : dn + "/" + n;
+        return '<button type="button" class="module-item' + (state.unitId === u[0] ? " active" : "") + (zero ? " is-off" : "") +
+          '" data-unit="' + u[0] + '"><span>' + esc(u[2]) + '</span><span class="mc">' + label + "</span></button>";
       }).join("");
     } else { $("moduleBlock").hidden = true; }
 
     var tot = 0, dn = 0;
-    BOARDS.forEach(function (b) { var d2 = getBoard(b.id); if (d2) tot += d2.items.length; dn += doneCount(b.id); });
+    BOARDS.forEach(function (b) { tot += flowTotal(b.id); dn += flowDone(b.id); });
     $("planBody").innerHTML =
       '<div class="anchor-card" style="box-shadow:none;padding:12px">' +
       '<h4>全程进度 ' + dn + " / " + tot + "</h4>" +
@@ -1743,7 +1768,8 @@
     var p = progress[bid] || { done: {} };
     var Z = window.ZZX_ZT || {};
     var h = '<details class="umap"><summary><div class="um-t"><b>' + esc(d.name || "本板块") +
-      " 框架</b><span>" + units.length + " 个单元 · 共 " + (d.items || []).length + " 条考点</span></div>" +
+      " 框架</b><span>" + units.length + " 个单元 · 共 " + flowTotal(bid) + " 条考点" +
+      (state.full || boardRawTotal(bid) === flowTotal(bid) ? "" : "（全量 " + boardRawTotal(bid) + "）") + "</span></div>" +
       '<i class="um-x">目录</i></summary><div class="um-list">';
     units.forEach(function (u, i) {
       var its = (d.items || []).filter(function (x) { return x.unit === u[0] && inMainline(x, bid); });
@@ -1784,8 +1810,9 @@
     /* 冲刺模式提示：把「收起了多少」直接摊开，避免误以为考点缺失 */
     var cutN = countCut(bd.id);
     if (cutN && !state.full) {
-      h += '<div class="tier-bar"><span>冲刺模式：已收起 ' + cutN + " 条过程细节／文献，只走主线</span>" +
-        '<button type="button" class="tier-btn" data-full="1">看全量 ' + (getBoard(bd.id).items || []).length + "</button></div>";
+      h += '<div class="tier-bar"><span>冲刺模式：主线 ' + flowTotal(bd.id) + " 条（已收起 " + cutN +
+        " 条细节／文献，全量 " + boardRawTotal(bd.id) + " 条）</span>" +
+        '<button type="button" class="tier-btn" data-full="1">看全量 ' + boardRawTotal(bd.id) + "</button></div>";
     } else if (state.full) {
       h += '<div class="tier-bar"><span>全量模式：含已下线细节与全部文献</span>' +
         '<button type="button" class="tier-btn" data-full="0">回到冲刺主线</button></div>';
@@ -1879,8 +1906,15 @@
     var it = list[state.index];
     if (!it) return;
     var p = subProgress(state.boardId);
+    /* 提示里的分母必须是「当前这一屏真正能翻到的条数」（可能已按单元/锚点类型筛选），
+       不能拿板块原始总条数，否则筛到 5 条时也会显示 xxx/105 */
     if (p.done[it.id]) { delete p.done[it.id]; toast("已取消「已掌握」"); }
-    else { p.done[it.id] = 1; toast("已标记为掌握 · " + doneCount(state.boardId) + "/" + list.length); }
+    else {
+      p.done[it.id] = 1;
+      var dnn = 0;
+      list.forEach(function (x) { if (p.done[x.id]) dnn++; });
+      toast("已标记为掌握 · " + dnn + "/" + list.length);
+    }
     saveProgress();
     renderStudy();
   }
@@ -1934,10 +1968,23 @@
       state.unitId = uid || null;
       state.kind = "";
       state.index = 0; state.page = 0; navSmooth = false;
-      if (uid && !filteredItems().length) state.unitId = null; // 该单元暂时没有考点则退回整个板块
+      /* 冲刺模式下整单元被收起的（文献专项等）：这里说的「条数」在侧栏写的是「全量 N」，
+         点进来却不能是空/退回整个板块——直接切到全量，让这一单元的条数对得上 */
+      var switched = false;
+      if (uid && !filteredItems().length && !state.full) {
+        var bd = getBoard(bid);
+        if (bd && (bd.items || []).some(function (x) { return x.unit === uid; })) {
+          state.full = true;
+          try { localStorage.setItem("zzx.full", "1"); } catch (e) {}
+          switched = true;
+        }
+      }
+      if (uid && !filteredItems().length) state.unitId = null; // 该单元确实没有考点则退回整个板块
       renderStudy(); renderSidebar();
       closeSidebar();
-      if (uid) toast("已定位到 " + bName(bid) + " · " + unitNameOf(uid) + "，从第 1 条开始");
+      if (uid) toast(switched
+        ? "该单元在冲刺模式下已收起，已切到全量 · " + unitNameOf(uid)
+        : "已定位到 " + bName(bid) + " · " + unitNameOf(uid) + "，从第 1 条开始");
     });
   }
 
@@ -3857,6 +3904,8 @@
         state.full = fg.getAttribute("data-full") === "1";
         localStorage.setItem("zzx.full", state.full ? "1" : "0");
         state.index = 0; state.page = 0;
+        /* 切回冲刺主线时，当前选中的单元可能整块被收起（如文献专项）：回落到整个板块，别甩回首页 */
+        if (!filteredItems().length) { state.unitId = null; state.kind = ""; }
         renderStudy(); renderSidebar();
         toast(state.full ? "已切到全量（含已下线细节与文献）" : "已回到冲刺主线");
         return;
@@ -3919,8 +3968,20 @@
       var u = up("[data-unit]");
       if (u) {
         var uv = u.getAttribute("data-unit");
-        state.unitId = state.unitId === uv ? null : uv;
-        state.index = 0; state.page = 0; renderSidebar(); renderStudy(); closeSidebar(); return;
+        var unext = state.unitId === uv ? null : uv;
+        state.unitId = unext;
+        state.index = 0; state.page = 0;
+        /* 侧栏这一行写的是「全量 N」＝当前模式下点不到，点它就切到全量，
+           否则会出现「显示有条数、点进去却还是原来那 51 条」的错位 */
+        if (unext && !state.full && !state.kind && !filteredItems().length) {
+          var bud = getBoard(state.boardId);
+          if (bud && (bud.items || []).some(function (x) { return x.unit === unext; })) {
+            state.full = true;
+            try { localStorage.setItem("zzx.full", "1"); } catch (e) {}
+            toast("该单元在冲刺模式下已收起，已切到全量");
+          }
+        }
+        renderSidebar(); renderStudy(); closeSidebar(); return;
       }
       var o = up("[data-open]");
       if (o) {
