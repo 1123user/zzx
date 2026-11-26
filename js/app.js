@@ -4530,6 +4530,12 @@
     return h;
   }
 
+  /* 三件套互切：放在每个视图顶部，省得回首页再点 */
+  function xdfNav(cur) {
+    return '<div class="xdf-nav">' + [["kw", "关键词汇总"], ["bsx", "核心背诵包"], ["xcln", "时政线"]].map(function (x) {
+      return '<button type="button" class="xdf-nav-b' + (x[0] === cur ? " on" : "") + '" data-xdf="' + x[0] + '">' + x[1] + "</button>";
+    }).join("") + "</div>";
+  }
   function xdfOpen(which) {
     closeSidebar();
     if (which === "kw") {
@@ -4558,6 +4564,7 @@
     var q = kwSt.q.trim().toLowerCase(), total = D.meta.total, doneN = Object.keys(kwSt.done).length;
     var h = '<div class="wrap">';
     h += '<div class="crumb"><span>27 届三件套</span><span>·</span><span>' + esc(D.meta.src) + "</span></div>";
+    h += xdfNav("kw");
     h += '<div class="hero-mini"><h1>一个考点<em>一句话</em></h1><p>五板块 ' + total +
       " 条：术语在前、解释在后，选择题就靠这句。「遮挡自测」把术语盖住，能说出后半句再打勾；史纲专题表照原文保留，左右滑动看。</p></div>";
     h += '<div class="bs-tabs"><button type="button" class="bs-tab' + (kwSt.bk === "全部" ? " on" : "") +
@@ -4640,6 +4647,7 @@
     var list = isObj ? D.obj : D.subj;
     var h = '<div class="wrap">';
     h += '<div class="crumb"><span>27 届三件套</span><span>·</span><span>' + esc(D.meta.src) + "</span></div>";
+    h += xdfNav("bsx");
     h += '<div class="hero-mini"><h1>' + (isObj ? "客观题 <em>271 条</em>" : "主观题 <em>33 个热点</em>") + "</h1><p>" +
       (isObj ? "「标志 / 首要 / 本质 / 根本」一句话考点，遮住后半句自问；错句回关键词汇总查同章。"
              : "每个热点按设问拆开：先只看设问自己说 30 秒，再展开答题思路与要点（" + D.meta.asks + " 问）。") + "</p></div>";
@@ -4714,6 +4722,7 @@
     var q = xcSt.q.trim().toLowerCase();
     var h = '<div class="wrap">';
     h += '<div class="crumb"><span>27 届三件套</span><span>·</span><span>' + esc(D.meta.src) + "</span></div>";
+    h += xdfNav("xcln");
     h += '<div class="hero-mini"><h1>考什么、怎么答、<em>都发生了什么</em></h1><p>客观题基础 + 近年命题特点 + 分析题救命模板与 ' +
       D.meta.principles + " 个常考原理 + 1—11 月时政 " + D.meta.news + " 条（带原文与例题）。</p></div>";
 

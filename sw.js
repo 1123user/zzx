@@ -6,17 +6,17 @@
       activate 时清理旧版本缓存并通知页面「新版本已就绪」；
    4) 预缓存与所有网络请求均有兜底，任何一步失败都不会把资源请求打死。
 */
-const CACHE = 'zzx-shell-v44';
+const CACHE = 'zzx-shell-v45';
 /* 配图为 WebP，缓存名与内容版本对应；改名会自动清理旧图片缓存 */
 const RUNTIME = 'zzx-runtime-v15';
 
 const SHELL = [
   './',
   './index.html',
-  './css/app.css?v=43',
+  './css/app.css?v=44',
   './js/theme.js?v=41',
   './js/pwa.js?v=41',
-  './js/app.js?v=44',
+  './js/app.js?v=45',
   './js/data/sg.js',
   './js/data/sgdoc.js',
   './js/data/mao.js',
