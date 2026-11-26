@@ -10,10 +10,10 @@ window.ZZX_TIER = {
       "sg-1919-wusi", "sg-1921-yida", "sg-1922-erda", "sg-1923-sanda", "sg-1924-guoda",
       "sg-1925-wusa", "sg-1926-beifa", "sg-1927-nanchang", "sg-1927-baqi", "sg-1927-qiushou",
       "sg-1927-jinggang", "sg-1929-gutian", "sg-1931-918", "sg-1934-changzheng", "sg-1935-zunyi",
-      "sg-1936-xian", "sg-1937-77", "sg-1938-liujie", "sg-1945-qida", "sg-1945-kangsheng",
-      "sg-1949-erzhong", "sg-1949-xinzhongguo", "sg-1951-xizang", "sg-1953-guodu", "sg-1954-xianfa",
+      "sg-1936-xian", "sg-1937-77", "sg-1938-liujie", "sg-1941-zhengfeng", "sg-1945-qida", "sg-1945-kangsheng",
+      "sg-1946-jiefang", "sg-1949-erzhong", "sg-1949-xinzhongguo", "sg-1951-xizang", "sg-1953-guodu", "sg-1954-xianfa",
       "sg-1956-shida", "sg-1956-bada", "sg-1971-lianhe", "sg-1978-zhenli", "sg-1978-shiyijie",
-      "sg-1982-shierda", "sg-1992-nanfang", "sg-1992-shisida", "sg-2012-shibada", "sg-2017-shijiuda",
+      "sg-1982-shierda", "sg-1992-nanfang", "sg-1992-shisida", "sg-2001-wto", "sg-2012-shibada", "sg-2017-shijiuda",
       "sg-2021-xiaokang", "sg-2024-3z", "sg-2025-4z",
       "sg-1950-kangmei", "sg-1964-yuanzi", "sg-1980-tequ", "sg-1987-shisanda"
     ],

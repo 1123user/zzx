@@ -85,8 +85,8 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
   .hero h1{font-size:21px}
 }
 </style>
-<link id="appCss" rel="stylesheet" href="css/app.css?v=42" media="print">
-<noscript><link rel="stylesheet" href="css/app.css?v=42"></noscript>
+<link id="appCss" rel="stylesheet" href="css/app.css?v=43" media="print">
+<noscript><link rel="stylesheet" href="css/app.css?v=43"></noscript>
 </head>
 <body>
 <div class="app">
@@ -121,6 +121,15 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
     </button>
     <button class="side-action" id="dailyBtn" type="button">
       <span>每日一题</span><i>真题大题 · 选 3 考点</i>
+    </button>
+    <button class="side-action" id="kwBtn" type="button">
+      <span>关键词汇总</span><i>27 届 · 444 条</i>
+    </button>
+    <button class="side-action" id="bsxBtn" type="button">
+      <span>核心背诵包</span><i>271 客观 + 33 主观</i>
+    </button>
+    <button class="side-action" id="xclnBtn" type="button">
+      <span>时政线</span><i>1—11 月 · 58 条</i>
     </button>
     <button class="side-action" id="quizBtn" type="button" hidden>
       <span>随机自测练习</span><i id="quizTotal"></i>
@@ -215,6 +224,9 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
     <section class="view" id="viewPair" hidden></section>
     <section class="view" id="viewAnniv" hidden></section>
     <section class="view" id="viewAuth" hidden></section>
+    <section class="view" id="viewKw" hidden></section>
+    <section class="view" id="viewBsx" hidden></section>
+    <section class="view" id="viewXcline" hidden></section>
     <div class="actionbar" id="actionbar" hidden></div>
   </main>
 </div>
@@ -251,11 +263,11 @@ body.auth-mode #menuBtn,body.auth-mode #searchBtn,body.auth-mode .progress-strip
 
 <script src="js/data/imgsize.js?v=41"></script>
 <script src="js/data/zhenti-stat.js?v=41"></script>
-<script src="js/data/tier.js?v=41"></script>
+<script src="js/data/tier.js?v=43"></script>
 <script src="js/data/beisong.js?v=41"></script>
 <script src="js/data/bs-hat.js?v=41"></script>
 <script src="js/data/daily.js?v=41"></script>
-<script src="js/app.js?v=42"></script>
+<script src="js/app.js?v=44"></script>
 <script src="js/pwa.js?v=41"></script>
 </body>
 </html>

@@ -6,17 +6,17 @@
       activate 时清理旧版本缓存并通知页面「新版本已就绪」；
    4) 预缓存与所有网络请求均有兜底，任何一步失败都不会把资源请求打死。
 */
-const CACHE = 'zzx-shell-v42';
+const CACHE = 'zzx-shell-v44';
 /* 配图为 WebP，缓存名与内容版本对应；改名会自动清理旧图片缓存 */
-const RUNTIME = 'zzx-runtime-v14';
+const RUNTIME = 'zzx-runtime-v15';
 
 const SHELL = [
   './',
   './index.html',
-  './css/app.css?v=42',
+  './css/app.css?v=43',
   './js/theme.js?v=41',
   './js/pwa.js?v=41',
-  './js/app.js?v=42',
+  './js/app.js?v=44',
   './js/data/sg.js',
   './js/data/sgdoc.js',
   './js/data/mao.js',
@@ -25,9 +25,12 @@ const SHELL = [
   './js/data/xc.js',
   './js/data/imgsize.js?v=41',
   './js/data/zhenti-stat.js?v=41',
-  './js/data/tier.js?v=41',
+  './js/data/tier.js?v=43',
+  './js/data/kw.js?v=44',
+  './js/data/bsx.js?v=44',
+  './js/data/xcline.js?v=44',
   './js/data/my-pair.js',
-  './js/data/sg-anniv.js',
+  './js/data/sg-anniv.js?v=43',
   './js/data/beisong.js?v=41',
   './js/data/bs-hat.js?v=41',
   './js/data/daily.js?v=41',
